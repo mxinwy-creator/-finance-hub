@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#f5f5f7">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="财务中枢 V2">
-<title>财务中枢 V2.1.3 · iPhone</title>
+<title>财务中枢 V2.1.4 · iPhone</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@6/dist/tesseract.min.js"></script>
 <style>
 :root{
@@ -61,7 +61,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:9px 5px;b
 <body>
 <div class="app">
   <div class="top">
-    <div><div class="title">财务中枢 V2.1.3</div><div class="sub" id="dateText">iPhone · 本地优先 · 截图批量识别</div></div>
+    <div><div class="title">财务中枢 V2.1.4</div><div class="sub" id="dateText">iPhone · 本地优先 · 截图批量识别</div></div>
     <button class="pill" onclick="showPage('import')">＋截图</button>
   </div>
 
@@ -203,7 +203,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:9px 5px;b
 <script>
 const STORE='financeHubV2';
 const SNAPSHOT_INDEX='financeHubSnapshots';
-const APP_VERSION='2.1.3';
+const APP_VERSION='2.1.4';
 const SCHEMA_VERSION=3;
 const cats=['餐饮','购物','服饰美妆','数码','交通','学习','医疗健康','生活缴费','娱乐','旅行','居住','宠物','人情往来','其他'];
 let state=loadAndMigrate();
@@ -345,7 +345,7 @@ function setImportMode(mode){
   if(hint){
     hint.textContent=
       mode==='accounts'
-      ? '银行卡列表模式：只识别银行、卡类型和尾号，不会把4位尾号或页面数字当成消费金额。'
+      ? '银行卡列表模式：先放大截图，必要时自动二次 OCR；只识别银行、卡类型和尾号，绝不会退回交易金额模式。'
       : mode==='transaction'
       ? '交易/账单模式：按消费、退款、信用卡账单等页面解析金额与商家。'
       : '自动判断页面类型。银行卡总览截图若识别不稳，请手动选择“银行卡列表”。';
@@ -605,26 +605,29 @@ function allCardTailCandidates(text){
   return [...map.values()].sort((a,b)=>a.lineIndex-b.lineIndex);
 }
 
-function nearestBankForLine(lines,index){
-  for(let radius=0;radius<=5;radius++){
-    for(const j of [index-radius,index+radius]){
-      if(j<0||j>=lines.length)continue;
-      const bank=normalizeBankName(lines[j]);
-      if(bank)return bank;
-    }
-  }
-  return '';
-}
+function cardBlockForLine(lines,index){
+  let bankIndex=-1, bank='';
 
-function nearestCardTypeForLine(lines,index){
-  for(let radius=0;radius<=4;radius++){
-    for(const j of [index-radius,index+radius]){
-      if(j<0||j>=lines.length)continue;
-      const t=cardTypeFromText(lines[j]);
-      if(t)return t;
+  // 尾号通常位于本张卡银行名称之后：优先当前行和向上寻找。
+  for(let j=index;j>=Math.max(0,index-6);j--){
+    const b=normalizeBankName(lines[j]);
+    if(b){bankIndex=j;bank=b;break}
+  }
+
+  // 只有向上完全没找到时才向下最多2行兜底。
+  if(bankIndex<0){
+    for(let j=index+1;j<=Math.min(lines.length-1,index+2);j++){
+      const b=normalizeBankName(lines[j]);
+      if(b){bankIndex=j;bank=b;break}
     }
   }
-  return '';
+
+  let type='';
+  if(bankIndex>=0){
+    const a=Math.min(bankIndex,index), b=Math.max(bankIndex,index);
+    type=cardTypeFromText(lines.slice(a,b+1).join(' '));
+  }
+  return {bank:bank||'待确认银行',type,bankIndex};
 }
 
 function parseAccountListForced(text,name='银行卡截图'){
@@ -646,8 +649,9 @@ function parseAccountListForced(text,name='银行卡截图'){
   }
 
   return candidates.map(c=>{
-    const bank=nearestBankForLine(lines,c.lineIndex) || '待确认银行';
-    const type=nearestCardTypeForLine(lines,c.lineIndex);
+    const block=cardBlockForLine(lines,c.lineIndex);
+    const bank=block.bank;
+    const type=block.type;
     const duplicateAccount=state.accounts.some(a=>a.last4===c.last4);
     const start=Math.max(0,c.lineIndex-2), end=Math.min(lines.length,c.lineIndex+3);
     return {
@@ -684,65 +688,80 @@ function dupCheck(o){
  let when=dObj(o.date).getTime(), poss=state.transactions.find(t=>Math.abs(Number(t.amount)-Number(o.amount))<0.01&&Math.abs(dObj(t.date).getTime()-when)<=86400000&&((t.accountId&&o.accountId&&t.accountId===o.accountId)||sim(t.merchant,o.merchant)>.48));
  return poss?{level:'possible',id:poss.id}:{level:'',id:''}
 }
-async function preprocess(file){
- let bmp=await createImageBitmap(file), maxW=1800, scale=Math.min(1,maxW/bmp.width), w=Math.max(1,Math.round(bmp.width*scale)), h=Math.max(1,Math.round(bmp.height*scale));
- let c=document.createElement('canvas');c.width=w;c.height=h;let x=c.getContext('2d',{willReadFrequently:true});x.drawImage(bmp,0,0,w,h);
+async function preprocess(file,profile='normal'){
+ let bmp=await createImageBitmap(file);
+ let targetW;
+ if(profile==='accounts') targetW=Math.min(2800,Math.max(bmp.width,Math.round(bmp.width*2.15)));
+ else if(profile==='accounts-strong') targetW=Math.min(3200,Math.max(bmp.width,Math.round(bmp.width*2.45)));
+ else targetW=Math.min(1800,bmp.width);
+ let scale=targetW/bmp.width, w=Math.max(1,Math.round(bmp.width*scale)), h=Math.max(1,Math.round(bmp.height*scale));
+ let c=document.createElement('canvas');c.width=w;c.height=h;
+ let x=c.getContext('2d',{willReadFrequently:true});x.imageSmoothingEnabled=true;x.imageSmoothingQuality='high';x.drawImage(bmp,0,0,w,h);
  let img=x.getImageData(0,0,w,h),d=img.data;
- for(let i=0;i<d.length;i+=4){let y=.299*d[i]+.587*d[i+1]+.114*d[i+2];let v=Math.max(0,Math.min(255,(y-128)*1.25+128));d[i]=d[i+1]=d[i+2]=v}
- x.putImageData(img,0,0);return new Promise(res=>c.toBlob(res,'image/jpeg',.92))
+ for(let i=0;i<d.length;i+=4){
+   let y=.299*d[i]+.587*d[i+1]+.114*d[i+2];
+   let contrast=profile==='accounts-strong'?1.65:profile==='accounts'?1.42:1.25;
+   let v=(y-128)*contrast+128;
+   if(profile==='accounts-strong'){if(v>205)v=255;else if(v<70)v=0;}
+   v=Math.max(0,Math.min(255,v)); d[i]=d[i+1]=d[i+2]=v;
+ }
+ x.putImageData(img,0,0);
+ return new Promise(res=>c.toBlob(res,'image/jpeg',profile==='normal'?.92:.96))
 }
 async function ensureWorker(){
  if(worker)return worker;if(!window.Tesseract)throw new Error('OCR 引擎未加载，请联网后重试。');
  worker=await Tesseract.createWorker(['chi_sim','eng'],1,{logger:m=>{if(m.progress!=null){prog.style.width=Math.round(m.progress*100)+'%';ocrStatus.textContent=(m.status||'OCR')+' '+Math.round(m.progress*100)+'%'}}});return worker
 }
-async function handleFiles(files){
- files=[...files];if(!files.length)return;progWrap.style.display='block';ocrStatus.textContent='准备 OCR…';
- try{
-   let w=await ensureWorker();
-   let addedCount=0;
-   for(let i=0;i<files.length;i++){
-     ocrStatus.textContent=`正在识别 ${i+1}/${files.length}：${files[i].name}`;
-     let processed=await preprocess(files[i]);let ret=await w.recognize(processed,{rotateAuto:true});
-     let txt=ret.data.text||'';
-
-     if(importMode==='accounts'){
-       let accountsDetected=parseAccountListForced(txt,files[i].name);
-       if(!accountsDetected.length){
-         reviewItems.unshift({
-           id:uid(),docType:'account',sourceName:files[i].name,text:txt,
-           bank:'待确认银行',last4:'',accountType:'',accountName:'银行卡',
-           billDay:'',dueDay:'',duplicateAccount:false,preview:URL.createObjectURL(files[i])
-         });
-         addedCount++;
-       }else{
-         for(const a of accountsDetected){
-           a.preview=URL.createObjectURL(files[i]);
-           reviewItems.unshift(a);addedCount++;
-         }
-       }
-     }else if(importMode==='transaction'){
-       let o=parseText(txt,files[i].name);
-       o.preview=URL.createObjectURL(files[i]);
-       let d=dupCheck(o);o.duplicate=d.level;o.duplicateId=d.id;
-       reviewItems.unshift(o);addedCount++;
-     }else{
-       let accountsDetected=parseAccountList(txt,files[i].name);
-       if(accountsDetected.length>=2){
-         for(const a of accountsDetected){
-           a.preview=URL.createObjectURL(files[i]);
-           reviewItems.unshift(a);addedCount++;
-         }
-       }else{
-         let o=parseText(txt,files[i].name);
-         o.preview=URL.createObjectURL(files[i]);
-         let d=dupCheck(o);o.duplicate=d.level;o.duplicateId=d.id;
-         reviewItems.unshift(o);addedCount++;
-       }
-     }
-     renderQueue()
+function mergeDetectedAccounts(...groups){
+ const map=new Map();
+ for(const group of groups){for(const a of (group||[])){
+   const k=String(a.last4||''); if(!k)continue;
+   if(!map.has(k))map.set(k,{...a});
+   else{
+     const old=map.get(k);
+     if((!old.bank||old.bank==='待确认银行')&&a.bank&&a.bank!=='待确认银行')old.bank=a.bank;
+     if(!old.accountType&&a.accountType)old.accountType=a.accountType;
+     old.accountName=(old.bank==='待确认银行'?'银行卡':old.bank)+(old.accountType==='credit'?'信用卡':old.accountType==='debit'?'储蓄卡':'');
+     old.text=(old.text||'')+'\n--- OCR补充 ---\n'+(a.text||'');
    }
-   prog.style.width='100%';
-   ocrStatus.textContent=`完成：识别出 ${addedCount} 个待确认项目。`
+ }}
+ return [...map.values()];
+}
+
+async function handleFiles(files){
+ files=[...files];if(!files.length)return;progWrap.style.display='block';prog.style.width='0%';ocrStatus.textContent='准备 OCR…';
+ try{
+   let w=await ensureWorker(),addedCount=0;
+   for(let i=0;i<files.length;i++){
+     const file=files[i];
+     if(importMode==='accounts'){
+       ocrStatus.textContent=`银行卡识别 ${i+1}/${files.length}：第一遍高清放大…`;
+       let p1=await preprocess(file,'accounts'),r1=await w.recognize(p1,{rotateAuto:true}),txt1=r1.data.text||'';
+       let a1=parseAccountListForced(txt1,file.name),merged=a1;
+       if(a1.length<2){
+         ocrStatus.textContent=`银行卡识别 ${i+1}/${files.length}：自动高对比复核…`;
+         let p2=await preprocess(file,'accounts-strong'),r2=await w.recognize(p2,{rotateAuto:true}),txt2=r2.data.text||'';
+         merged=mergeDetectedAccounts(a1,parseAccountListForced(txt2,file.name));
+       }
+       if(!merged.length){
+         reviewItems.unshift({id:uid(),docType:'account',sourceName:file.name,text:txt1,bank:'待确认银行',last4:'',accountType:'',accountName:'银行卡',billDay:'',dueDay:'',duplicateAccount:false,preview:URL.createObjectURL(file),recognitionFailed:true});addedCount++;
+       }else{
+         for(const a of merged){a.preview=URL.createObjectURL(file);reviewItems.unshift(a);addedCount++;}
+       }
+       renderQueue();continue;
+     }
+     ocrStatus.textContent=`正在识别 ${i+1}/${files.length}：${file.name}`;
+     let processed=await preprocess(file,'normal'),ret=await w.recognize(processed,{rotateAuto:true}),txt=ret.data.text||'';
+     if(importMode==='transaction'){
+       let o=parseText(txt,file.name);o.preview=URL.createObjectURL(file);let d=dupCheck(o);o.duplicate=d.level;o.duplicateId=d.id;reviewItems.unshift(o);addedCount++;
+     }else{
+       let accountsDetected=parseAccountList(txt,file.name);
+       if(accountsDetected.length>=2){for(const a of accountsDetected){a.preview=URL.createObjectURL(file);reviewItems.unshift(a);addedCount++;}}
+       else{let o=parseText(txt,file.name);o.preview=URL.createObjectURL(file);let d=dupCheck(o);o.duplicate=d.level;o.duplicateId=d.id;reviewItems.unshift(o);addedCount++;}
+     }
+     renderQueue();
+   }
+   prog.style.width='100%';ocrStatus.textContent=`完成：识别出 ${addedCount} 个待确认项目。`;
  }catch(e){ocrStatus.textContent='OCR 失败：'+e.message;alert('OCR 失败：'+e.message)}
 }
 galleryInput.addEventListener('change',e=>handleFiles(e.target.files));cameraInput.addEventListener('change',e=>handleFiles(e.target.files));
