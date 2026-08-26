@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#f5f5f7">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="财务中枢 V2">
+<title>财务中枢 V2.1 · iPhone</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@6/dist/tesseract.min.js"></script>
+<style>
+:root{
+  --bg:#f5f5f7;--card:#fff;--text:#1d1d1f;--muted:#6e6e73;--line:#e5e5ea;
+  --blue:#007aff;--green:#248a3d;--orange:#b85c00;--red:#d70015;--purple:#7d4fc7;
+  --radius:22px;--shadow:0 10px 32px rgba(0,0,0,.06)
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Helvetica Neue",Arial,sans-serif}
+body{padding:env(safe-area-inset-top) 0 calc(88px + env(safe-area-inset-bottom));min-height:100vh}
+button,input,select,textarea{font:inherit}button{cursor:pointer}
+.app{max-width:760px;margin:auto;padding:16px 14px 30px}
+.top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}.title{font-size:31px;font-weight:800;letter-spacing:-.8px}.sub{font-size:12px;color:var(--muted);margin-top:4px}
+.card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:17px;border:1px solid rgba(0,0,0,.035)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:11px}.span2{grid-column:1/-1}
+.kicker{font-size:12px;color:var(--muted);font-weight:700}.metric{font-size:29px;font-weight:800;letter-spacing:-.8px;margin-top:6px}.smallmetric{font-size:22px;font-weight:800;margin-top:6px}
+.section{font-size:19px;font-weight:780;margin:21px 2px 10px}
+.row{display:flex;gap:9px;align-items:center}.between{justify-content:space-between}.wrap{flex-wrap:wrap}
+.primary,.secondary,.danger,.ghost{border:0;border-radius:14px;padding:11px 13px;font-weight:740}
+.primary{background:var(--blue);color:#fff}.secondary{background:#ececf1;color:var(--text)}.danger{background:#ffe9eb;color:#a80012}.ghost{background:#fff;color:var(--blue);border:1px solid #d9d9df}
+.pill{border:0;border-radius:999px;background:#fff;padding:9px 12px;box-shadow:0 4px 16px rgba(0,0,0,.06)}
+.chip{display:inline-flex;align-items:center;padding:5px 8px;border-radius:999px;font-size:11px;font-weight:730;background:#f0f0f3;color:#444;white-space:nowrap}
+.chip.credit{background:#fff0df;color:#8a4300}.chip.debit{background:#eaf4ff;color:#005ea8}.chip.wallet{background:#ebf8ef;color:#1d6f33}.chip.warn{background:#fff2dd;color:#8b4e00}.chip.ok{background:#eaf8ed;color:#216d35}.chip.purple{background:#f1ecff;color:#6440a5}
+.notice{font-size:12px;line-height:1.55;border-radius:14px;padding:11px 13px;background:#fff8e8;color:#704d00}.oknote{font-size:12px;line-height:1.55;border-radius:14px;padding:11px 13px;background:#edf8ef;color:#216d35}
+.tiny{font-size:11px;color:var(--muted);line-height:1.5}.muted{color:var(--muted)}.green{color:var(--green)}
+.drop{background:#fff;border:1.5px dashed #b9bbc2;border-radius:21px;padding:22px 15px;text-align:center}.drop strong{font-size:18px;display:block}.drop p{font-size:12px;color:var(--muted);line-height:1.55;max-width:560px;margin:8px auto 14px}
+.hiddenInput{display:none}
+.progress{height:8px;border-radius:99px;background:#e9e9ee;overflow:hidden;margin-top:12px}.progress i{display:block;height:100%;width:0;background:var(--blue);transition:width .2s}
+.form{display:grid;grid-template-columns:1fr 1fr;gap:9px}.full{grid-column:1/-1}.field{display:flex;flex-direction:column;gap:6px}
+label{font-size:12px;color:var(--muted);font-weight:690}
+input,select,textarea{border:1px solid #d9d9df;border-radius:12px;background:#fff;padding:11px 12px;min-width:0;color:var(--text)}
+textarea{min-height:92px;resize:vertical}
+.queue{display:flex;flex-direction:column;gap:10px;margin-top:12px}.review{background:#fff;border-radius:19px;padding:14px;box-shadow:var(--shadow);border:1px solid rgba(0,0,0,.04)}
+.reviewHead{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.thumb{width:62px;height:62px;object-fit:cover;border-radius:13px;background:#eee;flex:0 0 auto}
+.hr{height:1px;background:var(--line);margin:12px 0}
+.txn{display:grid;grid-template-columns:42px 1fr auto;gap:10px;align-items:center;padding:11px 0;border-bottom:1px solid var(--line)}.txn:last-child{border-bottom:0}
+.ico{width:40px;height:40px;border-radius:13px;background:#f0f1f3;display:flex;align-items:center;justify-content:center;font-weight:780}
+.txnTitle{font-weight:730}.txnSub{font-size:11px;color:var(--muted);margin-top:4px}.amt{font-weight:800;text-align:right}.amt.plus{color:var(--green)}
+.search{display:grid;grid-template-columns:1.3fr .85fr .85fr;gap:7px;margin-bottom:9px}
+.barrow{display:grid;grid-template-columns:90px 1fr 75px;gap:8px;align-items:center;margin:10px 0;font-size:12px}.bar{height:8px;background:#ececf1;border-radius:99px;overflow:hidden}.bar i{display:block;height:100%;background:#8e8e93;border-radius:99px}
+.account{border:1px solid var(--line);background:#fff;border-radius:16px;padding:13px;margin-top:9px}
+.nav{position:fixed;left:0;right:0;bottom:0;background:rgba(248,248,248,.94);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-top:1px solid rgba(0,0,0,.08);z-index:99;padding:6px 7px calc(7px + env(safe-area-inset-bottom))}
+.navin{max-width:760px;margin:auto;display:grid;grid-template-columns:repeat(5,1fr)}.nav button{border:0;background:transparent;color:#777;font-size:10px;padding:5px 1px}.nav b{display:block;font-size:21px;line-height:24px}.nav button.active{color:var(--blue)}
+.page{display:none}.page.active{display:block}
+table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:9px 5px;border-bottom:1px solid var(--line);text-align:left}th{color:var(--muted)}
+.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;background:#f1f1f3;border-radius:9px;padding:8px;white-space:pre-wrap;word-break:break-word;max-height:180px;overflow:auto}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);background:#e9e9ee;border-radius:12px;padding:3px;gap:3px}.seg button{border:0;background:transparent;border-radius:9px;padding:8px;font-size:12px;font-weight:700}.seg button.active{background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+@media(max-width:520px){.metric{font-size:25px}.form{grid-template-columns:1fr}.full{grid-column:1}.search{grid-template-columns:1fr 1fr}.search input{grid-column:1/-1}.barrow{grid-template-columns:76px 1fr 69px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <div><div class="title">财务中枢 V2.1</div><div class="sub" id="dateText">iPhone · 本地优先 · 截图批量识别</div></div>
+    <button class="pill" onclick="showPage('import')">＋截图</button>
+  </div>
+
+  <section class="page active" id="home">
+    <div class="grid">
+      <div class="card"><div class="kicker">本月支出</div><div class="metric" id="homeSpend">¥0.00</div><div class="tiny" id="homeSpendN"></div></div>
+      <div class="card"><div class="kicker">本月收入/退款</div><div class="metric green" id="homeIncome">¥0.00</div><div class="tiny" id="homeIncomeN"></div></div>
+      <div class="card span2">
+        <div class="row between"><div><div class="kicker">下个月信用卡预计应还</div><div class="metric" id="homeDue">¥0.00</div></div><span class="chip credit">信用卡</span></div>
+        <div class="tiny" id="homeDueDetail" style="margin-top:7px">请先登记信用卡。</div>
+      </div>
+    </div>
+
+    <div class="section">待还信用卡</div>
+    <div class="card" id="homeCards"><div class="muted">还没有信用卡。</div></div>
+
+    <div class="section">本月消费分类</div>
+    <div class="card" id="homeCats"><div class="muted">暂无数据。</div></div>
+
+    <div class="section">最近记录</div>
+    <div class="card" id="recent"><div class="muted">暂无记录。</div></div>
+  </section>
+
+  <section class="page" id="import">
+    <div class="section">截图批量导入</div>
+    <div class="drop">
+      <strong>一次选择多张截图</strong>
+      <p>适合淘宝、拼多多、京东、抖音、小红书、支付宝、微信、银行信用卡账单。V2 会先增强图片，再 OCR、查重、分类。</p>
+      <div class="row wrap" style="justify-content:center">
+        <label class="primary" for="galleryInput">从照片选择</label>
+        <label class="secondary" for="cameraInput">直接拍照</label>
+        <button class="secondary" onclick="pasteImage()">粘贴截图</button>
+      </div>
+      <input class="hiddenInput" id="galleryInput" type="file" accept="image/*" multiple>
+      <input class="hiddenInput" id="cameraInput" type="file" accept="image/*" capture="environment">
+      <div class="progress" id="progWrap" style="display:none"><i id="prog"></i></div>
+      <div class="tiny" id="ocrStatus" style="margin-top:8px"></div>
+    </div>
+    <div class="notice" style="margin-top:11px">“粘贴截图”依赖 iOS/Safari 是否允许当前页面读取剪贴板；如果不可用，直接点“从照片选择”即可。</div>
+    <div id="queue" class="queue"></div>
+  </section>
+
+  <section class="page" id="transactions">
+    <div class="section">全部明细</div>
+    <div class="search">
+      <input id="searchQ" placeholder="搜索名称 / 平台 / 分类 / 订单号" oninput="renderTransactions()">
+      <select id="filterMonth" onchange="renderTransactions()"></select>
+      <select id="filterAccount" onchange="renderTransactions()"></select>
+    </div>
+    <div class="card" id="txnList"></div>
+  </section>
+
+  <section class="page" id="cards">
+    <div class="section">信用卡中心</div>
+    <div class="card" id="cardCenter"></div>
+    <div class="section">按月应还</div>
+    <div class="card" id="dueByMonth"></div>
+  </section>
+
+  <section class="page" id="settings">
+    <div class="section">账户与银行卡</div>
+    <div class="card">
+      <div class="form">
+        <div class="field"><label>账户名称</label><input id="accName" placeholder="如：招商银行信用卡"></div>
+        <div class="field"><label>账户类型</label><select id="accType" onchange="toggleCreditFields()"><option value="credit">信用卡</option><option value="debit">储蓄卡</option><option value="wallet">电子钱包</option><option value="cash">现金</option></select></div>
+        <div class="field"><label>银行 / 平台</label><input id="accBank" placeholder="招商银行 / 支付宝 / 微信"></div>
+        <div class="field"><label>卡号尾号</label><input id="accLast4" inputmode="numeric" maxlength="4" placeholder="1234"></div>
+        <div class="field creditOnly"><label>账单日</label><input id="billDay" type="number" min="1" max="31" placeholder="5"></div>
+        <div class="field creditOnly"><label>还款日</label><input id="dueDay" type="number" min="1" max="31" placeholder="25"></div>
+      </div>
+      <div style="margin-top:10px"><button class="primary" onclick="addAccount()">添加账户</button></div>
+      <div id="accounts"></div>
+    </div>
+
+    <div class="section">手动记账 / 记还款</div>
+    <div class="card">
+      <div class="form">
+        <div class="field"><label>日期时间</label><input id="manualDate" type="datetime-local"></div>
+        <div class="field"><label>类型</label><select id="manualType"><option value="expense">支出</option><option value="refund">退款</option><option value="income">收入</option><option value="repayment">信用卡还款</option></select></div>
+        <div class="field"><label>金额</label><input id="manualAmount" type="number" step=".01" placeholder="100.00"></div>
+        <div class="field"><label>名称 / 商家</label><input id="manualMerchant" placeholder="如：信用卡还款"></div>
+        <div class="field"><label>账户</label><select id="manualAccount"></select></div>
+        <div class="field"><label>分类</label><select id="manualCategory"></select></div>
+      </div>
+      <div style="margin-top:10px"><button class="primary" onclick="saveManual()">保存</button></div>
+    </div>
+
+    <div class="section">年度汇总</div>
+    <div class="card">
+      <div class="row wrap"><select id="yearSel" onchange="renderAnnual()"></select><button class="secondary" onclick="copyAnnual()">复制年度摘要</button></div>
+      <div id="annual" style="margin-top:10px"></div>
+    </div>
+
+    <div class="section">系统信息</div>
+    <div class="card">
+      <div id="systemInfo"></div>
+      <div class="row wrap" style="margin-top:10px">
+        <button class="secondary" onclick="createLocalSnapshot()">创建本地升级快照</button>
+        <button class="secondary" onclick="exportLatestSnapshot()">导出最近升级快照</button>
+      </div>
+      <div class="tiny" style="margin-top:8px">
+        以后打开新版时，系统会先检查数据库版本；如需迁移，会先在本机创建升级前快照，再执行迁移。
+      </div>
+    </div>
+
+    <div class="section">备份与恢复</div>
+    <div class="card">
+      <div class="row wrap">
+        <button class="secondary" onclick="exportJSON()">导出完整备份</button>
+        <button class="secondary" onclick="exportCSV()">导出明细 CSV</button>
+        <label class="secondary" for="restoreInput">恢复 JSON</label>
+        <input class="hiddenInput" id="restoreInput" type="file" accept=".json,application/json">
+        <button class="danger" onclick="resetAll()">清空全部数据</button>
+      </div>
+      <div class="tiny" style="margin-top:8px">V2 默认保存在浏览器本地。清除 Safari 网站数据可能同时清除账本，因此建议定期导出 JSON。</div>
+    </div>
+  </section>
+</div>
+
+<nav class="nav"><div class="navin">
+  <button class="active" data-page="home" onclick="showPage('home')"><b>⌂</b>首页</button>
+  <button data-page="import" onclick="showPage('import')"><b>＋</b>截图</button>
+  <button data-page="transactions" onclick="showPage('transactions')"><b>≡</b>明细</button>
+  <button data-page="cards" onclick="showPage('cards')"><b>▣</b>信用卡</button>
+  <button data-page="settings" onclick="showPage('settings')"><b>⚙</b>我的</button>
+</div></nav>
+
+<script>
+const STORE='financeHubV2';
+const SNAPSHOT_INDEX='financeHubSnapshots';
+const APP_VERSION='2.1.0';
+const SCHEMA_VERSION=3;
+const cats=['餐饮','购物','服饰美妆','数码','交通','学习','医疗健康','生活缴费','娱乐','旅行','居住','宠物','人情往来','其他'];
+let state=loadAndMigrate();
+let reviewItems=[];
+let worker=null;
+
+function cloneDefault(){
+  return {
+    version:SCHEMA_VERSION,
+    appVersion:APP_VERSION,
+    createdAt:new Date().toISOString(),
+    updatedAt:new Date().toISOString(),
+    lastMigrationAt:null,
+    accounts:[],
+    transactions:[]
+  }
+}
+function readSnapshotIndex(){
+  try{return JSON.parse(localStorage.getItem(SNAPSHOT_INDEX)||'[]')}catch(e){return []}
+}
+function writeSnapshotIndex(arr){
+  localStorage.setItem(SNAPSHOT_INDEX,JSON.stringify(arr.slice(-8)))
+}
+function createSnapshotFromObject(obj,reason='manual'){
+  try{
+    const stamp=new Date().toISOString().replace(/[:.]/g,'-');
+    const key=`financeHub_snapshot_${stamp}`;
+    const payload={
+      snapshotVersion:1,
+      reason,
+      createdAt:new Date().toISOString(),
+      appVersion:APP_VERSION,
+      schemaVersion:Number(obj?.version||0),
+      data:obj
+    };
+    localStorage.setItem(key,JSON.stringify(payload));
+    let idx=readSnapshotIndex();
+    idx.push({key,reason,createdAt:payload.createdAt,schemaVersion:payload.schemaVersion});
+    // Keep at most 8 snapshots to avoid filling browser storage.
+    while(idx.length>8){
+      const old=idx.shift();
+      try{localStorage.removeItem(old.key)}catch(e){}
+    }
+    writeSnapshotIndex(idx);
+    return key;
+  }catch(e){
+    console.warn('snapshot failed',e);
+    return null;
+  }
+}
+function migrateState(input){
+  let x=input && typeof input==='object' ? structuredClone(input) : cloneDefault();
+  let v=Number(x.version||1);
+
+  // V1 -> V2 compatibility: ensure arrays and statement history exist.
+  if(v<2){
+    x.accounts=Array.isArray(x.accounts)?x.accounts:[];
+    x.transactions=Array.isArray(x.transactions)?x.transactions:[];
+    x.accounts=x.accounts.map(a=>({...a,confirmedStatements:Array.isArray(a.confirmedStatements)?a.confirmedStatements:[]}));
+    v=2;
+    x.version=2;
+  }
+
+  // V2 -> V3 schema: add durable metadata and normalize account/transaction fields.
+  if(v<3){
+    x.accounts=(x.accounts||[]).map(a=>({
+      confirmedStatements:[],
+      billDay:null,
+      dueDay:null,
+      bank:'',
+      last4:'',
+      ...a,
+      confirmedStatements:Array.isArray(a.confirmedStatements)?a.confirmedStatements:[]
+    }));
+    x.transactions=(x.transactions||[]).map(t=>({
+      orderNo:'',
+      platform:'其他',
+      category:'其他',
+      source:'legacy',
+      createdAt:new Date().toISOString(),
+      ...t
+    }));
+    x.createdAt=x.createdAt||new Date().toISOString();
+    x.lastMigrationAt=new Date().toISOString();
+    x.version=3;
+    v=3;
+  }
+
+  x.appVersion=APP_VERSION;
+  x.updatedAt=new Date().toISOString();
+  return x;
+}
+function loadAndMigrate(){
+  try{
+    const raw=localStorage.getItem(STORE);
+    if(!raw)return cloneDefault();
+    const parsed=JSON.parse(raw);
+    const oldVersion=Number(parsed?.version||1);
+    if(oldVersion<SCHEMA_VERSION){
+      createSnapshotFromObject(parsed,`auto-before-migration-v${oldVersion}-to-v${SCHEMA_VERSION}`);
+      const migrated=migrateState(parsed);
+      localStorage.setItem(STORE,JSON.stringify(migrated));
+      return migrated;
+    }
+    return migrateState(parsed);
+  }catch(e){
+    console.error('load failed',e);
+    return cloneDefault();
+  }
+}
+function persist(){
+  state.version=SCHEMA_VERSION;
+  state.appVersion=APP_VERSION;
+  state.updatedAt=new Date().toISOString();
+  localStorage.setItem(STORE,JSON.stringify(state));
+  renderAll()
+}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,9)}
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function money(v){return '¥'+Number(v||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function pad(n){return String(n).padStart(2,'0')}
+function localISO(d=new Date()){return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`}
+function dObj(s){let d=new Date(s);return isNaN(d)?new Date():d}
+function dayKey(s){let d=dObj(s);return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`}
+function monthKey(s){let d=dObj(s);return `${d.getFullYear()}-${pad(d.getMonth()+1)}`}
+function norm(s){return String(s||'').toLowerCase().replace(/[\s\-_·•|｜（）()【】[\]¥￥,.，。:：/\\]/g,'')}
+function account(id){return state.accounts.find(a=>a.id===id)}
+function showPage(id){document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===id));document.querySelectorAll('.nav button').forEach(x=>x.classList.toggle('active',x.dataset.page===id));if(id==='transactions')renderTransactions();if(id==='cards')renderCards();if(id==='settings'){renderAccounts();renderAnnual()}scrollTo({top:0,behavior:'smooth'})}
+function accountChip(a){
+  if(!a)return '<span class="chip warn">账户待确认</span>';
+  let cls=a.type==='credit'?'credit':a.type==='debit'?'debit':'wallet';
+  let type=a.type==='credit'?'信用卡':a.type==='debit'?'储蓄卡':a.type==='wallet'?'钱包':'现金';
+  return `<span class="chip ${cls}">${type}${a.last4?' · '+esc(a.last4):''}</span>`
+}
+function toggleCreditFields(){let on=document.getElementById('accType').value==='credit';document.querySelectorAll('.creditOnly').forEach(x=>x.style.display=on?'flex':'none')}
+function addAccount(){
+  let name=accName.value.trim(),type=accType.value,bank=accBank.value.trim(),last4=accLast4.value.trim();
+  if(!name){alert('请填写账户名称');return} if(last4&&!/^\d{4}$/.test(last4)){alert('卡尾号请填写4位数字');return}
+  let a={id:uid(),name,type,bank,last4,billDay:null,dueDay:null,confirmedStatements:[]};
+  if(type==='credit'){a.billDay=Math.min(31,Math.max(1,Number(billDay.value||1)));a.dueDay=Math.min(31,Math.max(1,Number(dueDay.value||20)))}
+  state.accounts.push(a);['accName','accBank','accLast4','billDay','dueDay'].forEach(id=>document.getElementById(id).value='');persist()
+}
+function deleteAccount(id){if(state.transactions.some(t=>t.accountId===id)){alert('该账户已有交易，不能直接删除。');return}if(confirm('确定删除这个账户？')){state.accounts=state.accounts.filter(a=>a.id!==id);persist()}}
+function classify(text){
+ const rules=[
+  ['餐饮',/餐|饭|面|粉|咖啡|奶茶|麦当劳|肯德基|星巴克|瑞幸|外卖|饿了么|美团外卖|火锅|烧烤|面包|烘焙|餐厅|食堂/i],
+  ['服饰美妆',/服饰|衣服|女装|男装|鞋|包|美妆|护肤|口红|香水|化妆|优衣库|zara|hm\b/i],
+  ['数码',/apple|苹果|电脑|手机|耳机|相机|数码|键盘|鼠标|平板|ipad|iphone|macbook/i],
+  ['交通',/滴滴|地铁|公交|12306|铁路|高铁|出租|打车|加油|停车|高速|机票|航空/i],
+  ['学习',/课程|教材|图书|论文|学校|考试|报名|培训|打印|文具|知网/i],
+  ['医疗健康',/医院|药房|药店|体检|门诊|挂号|医疗|健康/i],
+  ['生活缴费',/电费|水费|燃气|话费|宽带|联通|移动|电信|物业|充值/i],
+  ['娱乐',/电影|影院|游戏|steam|腾讯视频|爱奇艺|网易云|会员|ktv|演出/i],
+  ['旅行',/酒店|宾馆|携程|飞猪|去哪儿|民宿|景区|门票/i],
+  ['居住',/房租|租金|公寓|家居|家具/i],
+  ['宠物',/宠物|猫粮|狗粮|猫砂|猫咪|狗狗/i],
+  ['人情往来',/红包|礼金|礼物|转账给/i],
+  ['购物',/淘宝|天猫|京东|拼多多|抖音商城|小红书|商城|旗舰店|超市|便利店|山姆|盒马|沃尔玛/i]
+ ];
+ for(let [c,re] of rules)if(re.test(text))return c;return '其他'
+}
+function platform(text){
+ let arr=[['淘宝/天猫',/淘宝|天猫/i],['拼多多',/拼多多/i],['京东',/京东/i],['抖音',/抖音/i],['小红书',/小红书/i],['支付宝',/支付宝|alipay/i],['微信',/微信支付|零钱|微信/i],['美团',/美团/i],['饿了么',/饿了么/i],['银行',/银行|信用卡|借记卡|储蓄卡/i]];
+ return (arr.find(x=>x[1].test(text))||['其他'])[0]
+}
+function extractOrderNo(text){
+ let m=text.match(/(?:订单号|订单编号|交易单号|商户单号|交易号|订单ID|订单id)\s*[:：]?\s*([A-Za-z0-9\-]{6,40})/i);
+ return m?m[1]:''
+}
+function linesOf(text){return String(text||'').replace(/\r/g,'\n').split(/\n+/).map(s=>s.trim()).filter(Boolean)}
+function amountCandidates(lines){
+ const re=/(?:¥|￥)?\s*(-?\d{1,8}(?:,\d{3})*(?:\.\d{1,2})?)/g;
+ const strongest=/实付|实际支付|支付金额|付款金额|交易金额|应付|本期应还|应还款额|账单金额|退款金额|收款金额/i;
+ const strong=/合计|总计|订单金额|商品金额|付款|支付成功|消费金额/i;
+ const bad=/原价|优惠|立减|红包|积分|运费|余额|剩余|最低还款|额度|可用额度/i;
+ let out=[];
+ lines.forEach((line,i)=>{let m;while((m=re.exec(line))){let v=Math.abs(Number(m[1].replace(/,/g,'')));if(!isFinite(v)||v<=0||v>1e7)continue;let score=0;if(/[¥￥]/.test(m[0]))score+=3;if(strongest.test(line))score+=12;else if(strong.test(line))score+=6;if(bad.test(line))score-=8;if(/\.\d{2}/.test(m[1]))score+=2;out.push({v,score,line,i})}});
+ return out.sort((a,b)=>b.score-a.score||b.v-a.v)
+}
+function extractDate(text){
+ let m=text.match(/(20\d{2})[年\/.\-](\d{1,2})[月\/.\-](\d{1,2})日?(?:\s+(\d{1,2})[:：](\d{2})(?::(\d{2}))?)?/);
+ if(m)return localISO(new Date(+m[1],+m[2]-1,+m[3],+(m[4]||12),+(m[5]||0),+(m[6]||0)));
+ m=text.match(/(\d{1,2})[月\/.\-](\d{1,2})日?(?:\s+(\d{1,2})[:：](\d{2}))?/);
+ if(m){let n=new Date();return localISO(new Date(n.getFullYear(),+m[1]-1,+m[2],+(m[3]||12),+(m[4]||0)))}
+ return localISO()
+}
+function extractDueDate(text){
+ let m=text.match(/(?:到期还款日|最后还款日|还款日|到期日)\s*[:：]?\s*(20\d{2})[年\/.\-](\d{1,2})[月\/.\-](\d{1,2})/i);
+ return m?`${m[1]}-${pad(m[2])}-${pad(m[3])}`:''
+}
+function merchant(lines,text){
+ const keys=[/商品(?:名称|说明)?\s*[:：]\s*(.+)/,/商家\s*[:：]\s*(.+)/,/收款方\s*[:：]\s*(.+)/,/交易对象\s*[:：]\s*(.+)/,/付款给\s*[:：]\s*(.+)/,/订单名称\s*[:：]\s*(.+)/,/店铺\s*[:：]\s*(.+)/];
+ for(let re of keys){let m=text.match(re);if(m&&m[1].trim())return m[1].trim().slice(0,80)}
+ const banned=/支付成功|交易成功|订单详情|账单详情|交易详情|付款方式|支付方式|交易单号|商户单号|订单号|创建时间|付款时间|金额|合计|优惠|账单|信用卡|储蓄卡|返回|完成|支付宝|微信支付|京东支付|收银台|退款|本期应还|最低还款|到期还款日|查看物流|申请售后|再次购买|评价/i;
+ let cand=lines.filter(x=>x.length>=2&&x.length<=60&&!banned.test(x)&&!/^[\d¥￥\s:：.,\-\/]+$/.test(x));
+ return cand[0]||platform(text)+'消费'
+}
+function matchAccount(text){
+ let last=(text.match(/(?:尾号|末四位|卡号末四位|[\(（])\s*(\d{4})\s*[\)）]?/i)||[])[1]||'';
+ let type=/信用卡|贷记卡/i.test(text)?'credit':/储蓄卡|借记卡/i.test(text)?'debit':'';
+ if(last){let a=state.accounts.find(a=>a.last4===last&&(!type||a.type===type));if(a)return {id:a.id,last4:last,confidence:'high'}}
+ let exact=state.accounts.filter(a=>(a.name&&text.includes(a.name))||(a.bank&&text.includes(a.bank)));
+ if(exact.length===1)return {id:exact[0].id,last4,confidence:'medium'};
+ if(/支付宝|余额宝|花呗/i.test(text)){let a=state.accounts.find(a=>a.type==='wallet'&&/支付宝|余额宝|花呗/i.test(a.name+a.bank));if(a)return {id:a.id,last4,confidence:'medium'}}
+ if(/微信支付|零钱|零钱通/i.test(text)){let a=state.accounts.find(a=>a.type==='wallet'&&/微信|零钱/i.test(a.name+a.bank));if(a)return {id:a.id,last4,confidence:'medium'}}
+ return {id:'',last4,confidence:'low',hint:type}
+}
+function parseText(text,name='截图'){
+ let lines=linesOf(text), isStatement=/本期应还|本期账单|账单金额|到期还款日|最低还款/i.test(text), ac=matchAccount(text), amounts=amountCandidates(lines), amount=amounts[0]?.v||0;
+ if(isStatement){let preferred=amountCandidates(lines.filter(x=>/本期应还|应还款额|账单金额/i.test(x)));if(preferred.length)amount=preferred[0].v}
+ let m=merchant(lines,text);
+ let type=/退款成功|已退款|退款金额/i.test(text)?'refund':/信用卡还款|还款成功|已还款/i.test(text)?'repayment':/收入|收款成功/i.test(text)?'income':'expense';
+ return {id:uid(),docType:isStatement?'statement':'transaction',sourceName:name,text,amount,merchant:m,date:extractDate(text),dueDate:extractDueDate(text),platform:platform(text),orderNo:extractOrderNo(text),accountId:ac.id,last4:ac.last4,hint:ac.hint||'',category:classify(text+' '+m),type,duplicate:'',duplicateId:'',preview:''}
+}
+function grams(s){s=norm(s);let z=new Set();if(s.length<2){if(s)z.add(s);return z}for(let i=0;i<s.length-1;i++)z.add(s.slice(i,i+2));return z}
+function sim(a,b){let A=grams(a),B=grams(b);if(!A.size||!B.size)return 0;let inter=[...A].filter(x=>B.has(x)).length;return 2*inter/(A.size+B.size)}
+function fingerprint(o){return [dayKey(o.date),Number(o.amount).toFixed(2),norm(o.merchant),o.accountId||'',o.type||'expense',o.orderNo||''].join('|')}
+function dupCheck(o){
+ let exact=state.transactions.find(t=>fingerprint(t)===fingerprint(o));if(exact)return {level:'exact',id:exact.id};
+ if(o.orderNo){let byOrder=state.transactions.find(t=>t.orderNo&&t.orderNo===o.orderNo);if(byOrder)return {level:'exact',id:byOrder.id}}
+ let when=dObj(o.date).getTime(), poss=state.transactions.find(t=>Math.abs(Number(t.amount)-Number(o.amount))<0.01&&Math.abs(dObj(t.date).getTime()-when)<=86400000&&((t.accountId&&o.accountId&&t.accountId===o.accountId)||sim(t.merchant,o.merchant)>.48));
+ return poss?{level:'possible',id:poss.id}:{level:'',id:''}
+}
+async function preprocess(file){
+ let bmp=await createImageBitmap(file), maxW=1800, scale=Math.min(1,maxW/bmp.width), w=Math.max(1,Math.round(bmp.width*scale)), h=Math.max(1,Math.round(bmp.height*scale));
+ let c=document.createElement('canvas');c.width=w;c.height=h;let x=c.getContext('2d',{willReadFrequently:true});x.drawImage(bmp,0,0,w,h);
+ let img=x.getImageData(0,0,w,h),d=img.data;
+ for(let i=0;i<d.length;i+=4){let y=.299*d[i]+.587*d[i+1]+.114*d[i+2];let v=Math.max(0,Math.min(255,(y-128)*1.25+128));d[i]=d[i+1]=d[i+2]=v}
+ x.putImageData(img,0,0);return new Promise(res=>c.toBlob(res,'image/jpeg',.92))
+}
+async function ensureWorker(){
+ if(worker)return worker;if(!window.Tesseract)throw new Error('OCR 引擎未加载，请联网后重试。');
+ worker=await Tesseract.createWorker(['chi_sim','eng'],1,{logger:m=>{if(m.progress!=null){prog.style.width=Math.round(m.progress*100)+'%';ocrStatus.textContent=(m.status||'OCR')+' '+Math.round(m.progress*100)+'%'}}});return worker
+}
+async function handleFiles(files){
+ files=[...files];if(!files.length)return;progWrap.style.display='block';ocrStatus.textContent='准备 OCR…';
+ try{
+   let w=await ensureWorker();
+   for(let i=0;i<files.length;i++){
+     ocrStatus.textContent=`正在识别 ${i+1}/${files.length}：${files[i].name}`;
+     let processed=await preprocess(files[i]);let ret=await w.recognize(processed,{rotateAuto:true});
+     let o=parseText(ret.data.text,files[i].name);o.preview=URL.createObjectURL(files[i]);let d=dupCheck(o);o.duplicate=d.level;o.duplicateId=d.id;reviewItems.unshift(o);renderQueue()
+   }
+   prog.style.width='100%';ocrStatus.textContent=`完成：${files.length} 张截图已进入待确认队列。`
+ }catch(e){ocrStatus.textContent='OCR 失败：'+e.message;alert('OCR 失败：'+e.message)}
+}
+galleryInput.addEventListener('change',e=>handleFiles(e.target.files));cameraInput.addEventListener('change',e=>handleFiles(e.target.files));
+async function pasteImage(){
+ try{
+  if(!navigator.clipboard||!navigator.clipboard.read)throw new Error('当前 iPhone 页面不支持读取图片剪贴板');
+  let items=await navigator.clipboard.read(),files=[];for(let item of items){for(let t of item.types){if(t.startsWith('image/')){let b=await item.getType(t);files.push(new File([b],'剪贴板截图.png',{type:t}))}}}
+  if(!files.length)throw new Error('剪贴板里没有图片');await handleFiles(files)
+ }catch(e){alert(e.message+'。请改用“从照片选择”。')}
+}
+function reviewAccountOptions(o){return '<option value="">待确认账户</option>'+state.accounts.map(a=>`<option value="${a.id}" ${a.id===o.accountId?'selected':''}>${esc(a.name)}${a.last4?' · '+a.last4:''}</option>`).join('')}
+function renderQueue(){
+ queue.innerHTML=reviewItems.length?'':'<div class="card muted">当前没有待确认截图。</div>';
+ reviewItems.forEach((o,i)=>{
+  let copt=cats.map(c=>`<option ${c===o.category?'selected':''}>${c}</option>`).join('');
+  let badges=`<span class="chip ${o.docType==='statement'?'purple':''}">${o.docType==='statement'?'信用卡账单':'交易'}</span>${o.duplicate?` <span class="chip warn">${o.duplicate==='exact'?'完全重复':'疑似重复'}</span>`:''}`;
+  queue.insertAdjacentHTML('beforeend',`<div class="review">
+    <div class="reviewHead"><div class="row">${o.preview?`<img class="thumb" src="${o.preview}">`:''}<div>${badges}<div class="txnTitle" style="margin-top:7px">${esc(o.merchant)}</div><div class="tiny">${esc(o.platform)} · ${esc(o.sourceName)}</div></div></div><button class="pill" onclick="removeReview(${i})">移除</button></div>
+    <div class="form" style="margin-top:11px">
+      <div class="field"><label>${o.docType==='statement'?'本期应还':'金额'}</label><input type="number" step=".01" value="${o.amount||''}" onchange="reviewItems[${i}].amount=Number(this.value);refreshDup(${i})"></div>
+      <div class="field"><label>名称 / 商家</label><input value="${esc(o.merchant)}" onchange="reviewItems[${i}].merchant=this.value;refreshDup(${i})"></div>
+      <div class="field"><label>账户</label><select onchange="reviewItems[${i}].accountId=this.value;refreshDup(${i})">${reviewAccountOptions(o)}</select></div>
+      ${o.docType==='statement'?`<div class="field"><label>到期还款日</label><input type="date" value="${o.dueDate}" onchange="reviewItems[${i}].dueDate=this.value"></div>`:
+      `<div class="field"><label>日期时间</label><input type="datetime-local" value="${o.date}" onchange="reviewItems[${i}].date=this.value;refreshDup(${i})"></div>
+       <div class="field"><label>分类</label><select onchange="reviewItems[${i}].category=this.value">${copt}</select></div>
+       <div class="field"><label>类型</label><select onchange="reviewItems[${i}].type=this.value;refreshDup(${i})"><option value="expense" ${o.type==='expense'?'selected':''}>支出</option><option value="refund" ${o.type==='refund'?'selected':''}>退款</option><option value="income" ${o.type==='income'?'selected':''}>收入</option><option value="repayment" ${o.type==='repayment'?'selected':''}>信用卡还款</option></select></div>
+       <div class="field"><label>订单号</label><input value="${esc(o.orderNo)}" onchange="reviewItems[${i}].orderNo=this.value;refreshDup(${i})"></div>`}
+    </div>
+    ${!o.accountId?`<div class="notice" style="margin-top:9px">无法可靠判断具体银行卡${o.last4?'，但识别到尾号 '+esc(o.last4):''}。请在“我的”先登记信用卡/储蓄卡，再回来选择。</div>`:''}
+    ${o.duplicate?`<div class="notice" style="margin-top:9px">${o.duplicate==='exact'?'与已有记录完全一致，默认拦截重复保存。':'同金额、相近时间且账户/商家相近，请确认是不是同一笔。'}</div>`:''}
+    <details style="margin-top:9px"><summary class="tiny">查看 OCR 原文</summary><div class="code">${esc(o.text)}</div></details>
+    <div class="row wrap" style="margin-top:10px"><button class="primary" onclick="saveReview(${i},false)">${o.docType==='statement'?'确认银行账单':'确认入账'}</button>${o.duplicate?`<button class="secondary" onclick="saveReview(${i},true)">仍然保存</button>`:''}</div>
+  </div>`)
+ })
+}
+function refreshDup(i){let o=reviewItems[i],d=o.docType==='transaction'?dupCheck(o):{level:'',id:''};o.duplicate=d.level;o.duplicateId=d.id;renderQueue()}
+function removeReview(i){if(reviewItems[i]?.preview)URL.revokeObjectURL(reviewItems[i].preview);reviewItems.splice(i,1);renderQueue()}
+function saveReview(i,force){
+ let o=reviewItems[i];if(!o||!o.amount){alert('请确认金额');return}if(!o.accountId){alert('请先选择具体账户，才能区分信用卡和储蓄卡。');return}
+ if(o.docType==='statement'){
+   let a=account(o.accountId);if(!a||a.type!=='credit'){alert('信用卡账单必须关联到信用卡账户。');return}if(!o.dueDate){alert('请确认到期还款日');return}
+   a.confirmedStatements=a.confirmedStatements||[];let rec={id:uid(),amount:Number(o.amount),dueDate:o.dueDate,source:'screenshot',createdAt:new Date().toISOString()};
+   a.confirmedStatements=a.confirmedStatements.filter(x=>x.dueDate!==rec.dueDate);a.confirmedStatements.push(rec);removeReview(i);persist();alert('银行本期应还已确认。');return
+ }
+ let d=dupCheck(o);if(d.level==='exact'&&!force){alert('已拦截完全重复记录。');return}if(d.level==='possible'&&!force&&!confirm('存在疑似重复记录。确认这是一笔新的交易吗？'))return;
+ state.transactions.push({id:uid(),date:o.date,amount:Number(o.amount),merchant:o.merchant||'未命名',category:o.category||'其他',platform:o.platform||'其他',orderNo:o.orderNo||'',accountId:o.accountId,type:o.type||'expense',source:'screenshot',createdAt:new Date().toISOString()});
+ removeReview(i);persist()
+}
+function icon(c){return {'餐饮':'餐','购物':'购','服饰美妆':'衣','数码':'数','交通':'行','学习':'学','医疗健康':'医','生活缴费':'缴','娱乐':'娱','旅行':'旅','居住':'住','宠物':'宠','人情往来':'礼','其他':'·'}[c]||'·'}
+function txnHtml(t){
+ let a=account(t.accountId),plus=['refund','income'].includes(t.type),prefix=t.type==='expense'?'-':t.type==='repayment'?'还款 ':'+';
+ return `<div class="txn"><div class="ico">${icon(t.category)}</div><div><div class="txnTitle">${esc(t.merchant)}</div><div class="txnSub">${dayKey(t.date)} · ${esc(t.category)} · ${esc(t.platform)} ${t.orderNo?'· '+esc(t.orderNo):''}<br>${accountChip(a)}</div></div><div><div class="amt ${plus?'plus':''}">${prefix}${money(t.amount)}</div><button class="pill" style="margin-top:5px;font-size:10px" onclick="deleteTxn('${t.id}')">删除</button></div></div>`
+}
+function deleteTxn(id){if(confirm('删除这条记录？')){state.transactions=state.transactions.filter(t=>t.id!==id);persist()}}
+function renderTransactions(){
+ let q=norm(searchQ.value||''),m=filterMonth.value||'',a=filterAccount.value||'';
+ let arr=[...state.transactions].sort((x,y)=>dObj(y.date)-dObj(x.date)).filter(t=>(!q||norm(t.merchant+t.platform+t.category+t.orderNo).includes(q))&&(!m||monthKey(t.date)===m)&&(!a||t.accountId===a));
+ txnList.innerHTML=arr.length?arr.map(txnHtml).join(''):'<div class="muted">没有符合条件的记录。</div>'
+}
+function daysInMonth(y,m){return new Date(y,m,0).getDate()}
+function safeDate(y,m,d){return new Date(y,m-1,Math.min(d,daysInMonth(y,m)))}
+function stmtDateFor(date,a){let d=dObj(date),y=d.getFullYear(),m=d.getMonth()+1;if(d.getDate()<=a.billDay)return safeDate(y,m,a.billDay);return m===12?safeDate(y+1,1,a.billDay):safeDate(y,m+1,a.billDay)}
+function dueForStmt(stmt,a){let y=stmt.getFullYear(),m=stmt.getMonth()+1;if(a.dueDay>a.billDay)return safeDate(y,m,a.dueDay);return m===12?safeDate(y+1,1,a.dueDay):safeDate(y,m+1,a.dueDay)}
+function forecast(a){
+ let g={};state.transactions.filter(t=>t.accountId===a.id&&['expense','refund'].includes(t.type)).forEach(t=>{let due=dueForStmt(stmtDateFor(t.date,a),a),k=dayKey(due);g[k]=(g[k]||0)+(t.type==='expense'?Number(t.amount):-Number(t.amount))});Object.keys(g).forEach(k=>g[k]=Math.max(0,g[k]));
+ let reps=state.transactions.filter(t=>t.accountId===a.id&&t.type==='repayment').sort((x,y)=>dObj(x.date)-dObj(y.date));
+ reps.forEach(t=>{let rem=Number(t.amount||0),pay=dObj(t.date);for(let k of Object.keys(g).sort()){if(rem<=0)break;let due=new Date(k+'T23:59');if(due<pay||g[k]<=0)continue;let u=Math.min(rem,g[k]);g[k]-=u;rem-=u}});
+ return g
+}
+function nextMonth(){let n=new Date(),y=n.getFullYear(),m=n.getMonth()+2;if(m===13){m=1;y++}return [safeDate(y,m,1),safeDate(y,m,daysInMonth(y,m))]}
+function confirmedForRange(a,s,e){let arr=(a.confirmedStatements||[]).filter(x=>{let d=new Date(x.dueDate+'T12:00');return d>=s&&d<=e}).sort((x,y)=>x.dueDate.localeCompare(y.dueDate));return arr}
+function dueNextMonth(){
+ let [s,e]=nextMonth(),total=0,det=[];state.accounts.filter(a=>a.type==='credit').forEach(a=>{let c=confirmedForRange(a,s,e),val=0,label='预计';if(c.length){val=c.reduce((x,r)=>x+Number(r.amount),0);label='银行已确认'}else{let g=forecast(a);for(let [k,v] of Object.entries(g)){let d=new Date(k+'T12:00');if(d>=s&&d<=e)val+=v}}total+=val;det.push({a,val,label})});return {total,det}
+}
+function renderHome(){
+ let mk=monthKey(new Date()),arr=state.transactions.filter(t=>monthKey(t.date)===mk),sp=arr.filter(t=>t.type==='expense').reduce((s,t)=>s+Number(t.amount),0),inc=arr.filter(t=>['income','refund'].includes(t.type)).reduce((s,t)=>s+Number(t.amount),0);
+ homeSpend.textContent=money(sp);homeIncome.textContent=money(inc);homeSpendN.textContent=arr.filter(t=>t.type==='expense').length+' 笔';homeIncomeN.textContent=arr.filter(t=>['income','refund'].includes(t.type)).length+' 笔';
+ let due=dueNextMonth();homeDue.textContent=money(due.total);homeDueDetail.textContent=due.det.length?due.det.map(x=>`${x.a.name} ${money(x.val)}（${x.label}）`).join('；'):'请先登记信用卡及账单日/还款日。';
+ let credits=state.accounts.filter(a=>a.type==='credit');homeCards.innerHTML=credits.length?credits.map(a=>{let g=forecast(a),next=Object.entries(g).filter(x=>x[1]>0).sort()[0],last=(a.confirmedStatements||[]).sort((x,y)=>y.dueDate.localeCompare(x.dueDate))[0];return `<div class="account"><div class="row between"><div><b>${esc(a.name)}</b><div class="tiny">尾号 ${esc(a.last4||'未设')} · 账单日 ${a.billDay} · 还款日 ${a.dueDay}</div></div>${accountChip(a)}</div>${last?`<div class="tiny green" style="margin-top:7px">银行确认：${money(last.amount)} · ${last.dueDate} 到期</div>`:''}${next?`<div class="tiny">模型最近一期：${money(next[1])} · ${next[0]} 到期</div>`:''}</div>`}).join(''):'<div class="muted">还没有信用卡。</div>';
+ let cat={};arr.filter(t=>t.type==='expense').forEach(t=>cat[t.category]=(cat[t.category]||0)+Number(t.amount));let mx=Math.max(...Object.values(cat),1);homeCats.innerHTML=Object.keys(cat).length?Object.entries(cat).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="barrow"><span>${esc(k)}</span><div class="bar"><i style="width:${v/mx*100}%"></i></div><b>${money(v)}</b></div>`).join(''):'<div class="muted">暂无数据。</div>';
+ let r=[...state.transactions].sort((a,b)=>dObj(b.date)-dObj(a.date)).slice(0,6);recent.innerHTML=r.length?r.map(txnHtml).join(''):'<div class="muted">暂无记录。</div>'
+}
+function renderCards(){
+ let credits=state.accounts.filter(a=>a.type==='credit');cardCenter.innerHTML=credits.length?credits.map(a=>{let g=forecast(a),up=Object.entries(g).filter(x=>x[1]>0).sort(),sum=up.reduce((s,x)=>s+x[1],0),last=(a.confirmedStatements||[]).sort((x,y)=>y.dueDate.localeCompare(x.dueDate))[0];return `<div class="account"><div class="row between"><div><b>${esc(a.name)}</b><div class="tiny">尾号 ${esc(a.last4||'未设')}</div></div>${accountChip(a)}</div><div class="smallmetric">${money(sum)}</div><div class="tiny">根据已录入消费/退款/还款推算的未结清金额</div>${last?`<div class="oknote" style="margin-top:8px">最近银行账单：${money(last.amount)}，${last.dueDate} 到期。银行已确认金额优先于模型估算。</div>`:''}</div>`}).join(''):'<div class="muted">还没有信用卡。</div>';
+ let months={};credits.forEach(a=>{let g=forecast(a);for(let [k,v] of Object.entries(g)){if(v<=0)continue;let m=k.slice(0,7);months[m]=(months[m]||0)+v}(a.confirmedStatements||[]).forEach(r=>{let m=r.dueDate.slice(0,7);months[m]=months[m]||0})});
+ dueByMonth.innerHTML=Object.keys(months).length?Object.keys(months).sort().map(m=>{let total=0,lines=[];credits.forEach(a=>{let conf=(a.confirmedStatements||[]).filter(r=>r.dueDate.startsWith(m));let v=0,label='预计';if(conf.length){v=conf.reduce((s,r)=>s+Number(r.amount),0);label='银行确认'}else{let g=forecast(a);v=Object.entries(g).filter(([k])=>k.startsWith(m)).reduce((s,[,x])=>s+x,0)}if(v){total+=v;lines.push(`${a.name} ${money(v)}（${label}）`)}});return `<div class="account"><div class="row between"><b>${m}</b><b>${money(total)}</b></div><div class="tiny">${lines.join('；')}</div></div>`}).join(''):'<div class="muted">暂无应还数据。</div>'
+}
+function renderAccounts(){
+ accounts.innerHTML=state.accounts.length?state.accounts.map(a=>`<div class="account"><div class="row between"><div><b>${esc(a.name)}</b><div class="tiny">${esc(a.bank||'')}${a.last4?' · 尾号 '+esc(a.last4):''}${a.type==='credit'?` · 账单日 ${a.billDay} · 还款日 ${a.dueDay}`:''}</div></div>${accountChip(a)}</div><div style="margin-top:8px"><button class="danger" onclick="deleteAccount('${a.id}')">删除</button></div></div>`).join(''):'<div class="muted" style="margin-top:9px">还没有账户。建议先登记支付宝、微信、常用储蓄卡和信用卡。</div>'
+}
+function saveManual(){
+ let amt=Math.abs(Number(manualAmount.value)),aid=manualAccount.value;if(!amt||!aid){alert('请填写金额并选择账户');return}
+ let t={id:uid(),date:manualDate.value||localISO(),amount:amt,merchant:manualMerchant.value.trim()||'手动记录',category:manualCategory.value,type:manualType.value,platform:'手动',orderNo:'',accountId:aid,source:'manual',createdAt:new Date().toISOString()};
+ let d=dupCheck(t);if(d.level&&!confirm('检测到可能重复的记录，仍然保存吗？'))return;state.transactions.push(t);manualAmount.value='';manualMerchant.value='';persist()
+}
+function renderFilters(){
+ let months=[...new Set(state.transactions.map(t=>monthKey(t.date)))].sort().reverse(),cur=filterMonth.value||'';filterMonth.innerHTML='<option value="">全部月份</option>'+months.map(m=>`<option ${m===cur?'selected':''}>${m}</option>`).join('');
+ let acur=filterAccount.value||'';filterAccount.innerHTML='<option value="">全部账户</option>'+state.accounts.map(a=>`<option value="${a.id}" ${a.id===acur?'selected':''}>${esc(a.name)}</option>`).join('');
+ let mav=manualAccount.value||'';manualAccount.innerHTML='<option value="">选择账户</option>'+state.accounts.map(a=>`<option value="${a.id}" ${a.id===mav?'selected':''}>${esc(a.name)}</option>`).join('');
+ let cv=manualCategory.value||'其他';manualCategory.innerHTML=cats.map(c=>`<option ${c===cv?'selected':''}>${c}</option>`).join('');
+ let years=[...new Set(state.transactions.map(t=>dObj(t.date).getFullYear()))].sort((a,b)=>b-a);if(!years.includes(new Date().getFullYear()))years.unshift(new Date().getFullYear());let ycur=yearSel.value||String(years[0]);yearSel.innerHTML=years.map(y=>`<option ${String(y)===ycur?'selected':''}>${y}</option>`).join('')
+}
+function renderAnnual(){
+ let y=Number(yearSel.value||new Date().getFullYear()),arr=state.transactions.filter(t=>dObj(t.date).getFullYear()===y),sp=arr.filter(t=>t.type==='expense').reduce((s,t)=>s+Number(t.amount),0),rf=arr.filter(t=>t.type==='refund').reduce((s,t)=>s+Number(t.amount),0),net=Math.max(0,sp-rf);
+ let plats={},cs={};arr.filter(t=>t.type==='expense').forEach(t=>{plats[t.platform]=(plats[t.platform]||0)+Number(t.amount);cs[t.category]=(cs[t.category]||0)+Number(t.amount)});
+ annual.innerHTML=`<div class="grid"><div><div class="kicker">总支出</div><div class="smallmetric">${money(sp)}</div></div><div><div class="kicker">退款</div><div class="smallmetric green">${money(rf)}</div></div><div class="span2"><div class="kicker">扣除退款后的净支出</div><div class="metric">${money(net)}</div></div></div><div class="hr"></div><b>平台</b>${Object.entries(plats).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="row between" style="padding:6px 0"><span>${esc(k)}</span><b>${money(v)}</b></div>`).join('')||'<div class="muted">暂无</div>'}<div class="hr"></div><b>分类</b>${Object.entries(cs).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="row between" style="padding:6px 0"><span>${esc(k)}</span><b>${money(v)}</b></div>`).join('')||'<div class="muted">暂无</div>'}`
+}
+async function copyAnnual(){let txt=annual.innerText;try{await navigator.clipboard.writeText(txt);alert('年度摘要已复制')}catch(e){alert('当前页面不允许写入剪贴板')}}
+function dl(name,content,type){let b=new Blob([content],{type}),u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)}
+function exportJSON(){
+  const payload={
+    backupFormat:'finance-hub-backup',
+    backupVersion:2,
+    exportedAt:new Date().toISOString(),
+    appVersion:APP_VERSION,
+    schemaVersion:SCHEMA_VERSION,
+    data:state
+  };
+  dl(`财务中枢V2.1_完整备份_${dayKey(new Date())}.json`,JSON.stringify(payload,null,2),'application/json')
+}
+function exportCSV(){
+ let rows=[['日期','类型','金额','名称/商家','分类','平台','订单号','账户','账户类型','卡尾号','来源']];
+ [...state.transactions].sort((a,b)=>dObj(a.date)-dObj(b.date)).forEach(t=>{let a=account(t.accountId);rows.push([t.date,t.type,t.amount,t.merchant,t.category,t.platform,t.orderNo,a?.name||'',a?.type||'',a?.last4||'',t.source||''])});
+ let csv='\ufeff'+rows.map(r=>r.map(x=>`"${String(x??'').replace(/"/g,'""')}"`).join(',')).join('\n');dl(`财务中枢V2.1_明细_${dayKey(new Date())}.csv`,csv,'text/csv;charset=utf-8')
+}
+restoreInput.addEventListener('change',async e=>{
+  try{
+    let obj=JSON.parse(await e.target.files[0].text());
+    // Accept both direct backup and exported snapshot payload.
+    if(obj && obj.data && (obj.snapshotVersion||obj.backupFormat==='finance-hub-backup'))obj=obj.data;
+    if(!obj.accounts||!obj.transactions)throw new Error('不是有效备份');
+    if(confirm('恢复会覆盖当前数据。系统会先自动创建当前账本快照，继续吗？')){
+      createSnapshotFromObject(state,'auto-before-restore');
+      state=migrateState(obj);
+      persist();
+      alert('恢复完成，并已自动迁移到当前数据库版本。')
+    }
+  }catch(err){alert('恢复失败：'+err.message)}
+})
+function createLocalSnapshot(){
+  const key=createSnapshotFromObject(state,'manual');
+  if(key){renderSystemInfo();alert('已在本机创建升级快照。')}else alert('创建快照失败，建议立即导出 JSON 备份。')
+}
+function latestSnapshot(){
+  const idx=readSnapshotIndex();
+  if(!idx.length)return null;
+  const meta=idx[idx.length-1];
+  try{return {meta,payload:JSON.parse(localStorage.getItem(meta.key)||'null')}}catch(e){return null}
+}
+function exportLatestSnapshot(){
+  const x=latestSnapshot();
+  if(!x||!x.payload){alert('还没有本地升级快照。');return}
+  dl(`财务中枢_升级快照_${dayKey(new Date())}.json`,JSON.stringify(x.payload,null,2),'application/json')
+}
+function renderSystemInfo(){
+  if(!document.getElementById('systemInfo'))return;
+  const idx=readSnapshotIndex();
+  const latest=idx.length?idx[idx.length-1]:null;
+  const tx=state.transactions?.length||0;
+  const cards=state.accounts?.filter(a=>a.type==='credit').length||0;
+  const debits=state.accounts?.filter(a=>a.type==='debit').length||0;
+  systemInfo.innerHTML=`
+    <table>
+      <tr><th>应用版本</th><td>V${APP_VERSION}</td></tr>
+      <tr><th>数据库版本</th><td>Schema ${SCHEMA_VERSION}</td></tr>
+      <tr><th>交易记录</th><td>${tx} 条</td></tr>
+      <tr><th>信用卡</th><td>${cards} 张</td></tr>
+      <tr><th>储蓄卡</th><td>${debits} 张</td></tr>
+      <tr><th>最近更新</th><td>${state.updatedAt?new Date(state.updatedAt).toLocaleString('zh-CN'):'—'}</td></tr>
+      <tr><th>最近迁移</th><td>${state.lastMigrationAt?new Date(state.lastMigrationAt).toLocaleString('zh-CN'):'尚未发生'}</td></tr>
+      <tr><th>本地升级快照</th><td>${latest?new Date(latest.createdAt).toLocaleString('zh-CN')+' · '+esc(latest.reason):'暂无'}</td></tr>
+    </table>`;
+}
+function resetAll(){
+  if(confirm('这会清除当前账本数据。系统会先自动创建一份本地快照，确定继续？')){
+    createSnapshotFromObject(state,'auto-before-reset');
+    localStorage.removeItem(STORE);
+    state=cloneDefault();
+    persist()
+  }
+}
+function renderAll(){renderFilters();renderHome();renderTransactions();renderCards();renderAccounts();renderAnnual();renderQueue();renderSystemInfo()}
+dateText.textContent=new Date().toLocaleDateString('zh-CN',{year:'numeric',month:'long',day:'numeric',weekday:'long'})+' · iPhone 本地账本';
+manualDate.value=localISO();toggleCreditFields();renderAll()
+</script>
+</body>
+</html>
