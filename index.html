@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#f5f5f7">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="财务中枢 V2">
-<title>财务中枢 V2.2.0 · iPhone</title>
+<title>财务中枢 V2.2.1 · iPhone</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@6/dist/tesseract.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <style>
@@ -62,7 +62,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:9px 5px;b
 <body>
 <div class="app">
   <div class="top">
-    <div><div class="title">财务中枢 V2.2.0</div><div class="sub" id="dateText">iPhone · 本地优先 · 截图批量识别</div></div>
+    <div><div class="title">财务中枢 V2.2.1</div><div class="sub" id="dateText">iPhone · 本地优先 · 截图批量识别</div></div>
     <button class="pill" onclick="showPage('import')">＋截图</button>
   </div>
 
@@ -93,7 +93,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:9px 5px;b
       <div class="row between wrap">
         <div>
           <b>直接导入手机银行明细 PDF</b>
-          <div class="tiny" style="margin-top:4px">首批支持：平安银行个人账户交易明细、宁波银行交易流水。优先读取 PDF 文字层，不走截图 OCR。</div>
+          <div class="tiny" style="margin-top:4px">智能识别模式：优先读取 PDF 文字层，自动判断银行、表头和字段。已针对平安银行、宁波银行优化；其他常见银行优先走通用解析器。</div>
         </div>
         <label class="primary" for="pdfInput">选择 PDF</label>
       </div>
@@ -101,7 +101,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:9px 5px;b
       <div class="progress" id="pdfProgWrap" style="display:none"><i id="pdfProg"></i></div>
       <div class="tiny" id="pdfStatus" style="margin-top:8px"></div>
       <div class="notice" style="margin-top:10px">
-        PDF 解析后先进入待确认队列，不会直接批量入账。内部转账、信用卡还款、理财申购/赎回默认不计入普通消费。
+        PDF 解析后先进入待确认队列。系统会自动识别分段文件、内部转账、信用卡还款、理财申购/赎回；新银行会优先尝试通用解析，不再直接报“不支持”。
       </div>
     </div>
 
@@ -222,7 +222,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:9px 5px;b
 <script>
 const STORE='financeHubV2';
 const SNAPSHOT_INDEX='financeHubSnapshots';
-const APP_VERSION='2.2.0';
+const APP_VERSION='2.2.1';
 const SCHEMA_VERSION=4;
 const cats=['餐饮','购物','服饰美妆','数码','交通','学习','医疗健康','生活缴费','娱乐','旅行','居住','宠物','人情往来','其他'];
 let state=loadAndMigrate();
@@ -797,10 +797,88 @@ async function pdfPageToLines(page){
     .filter(Boolean);
 }
 
+const bankAliases=[
+  ['pingan','平安银行',/平安银行|Pingan Bank/i],
+  ['ningbo','宁波银行',/宁波银行/i],
+  ['icbc','中国工商银行',/中国工商银行|工商银行|ICBC/i],
+  ['boc','中国银行',/(?:^|[^\u5de5])中国银行|Bank of China|中行/i],
+  ['cmb','招商银行',/招商银行|China Merchants Bank|招行/i],
+  ['ccb','中国建设银行',/中国建设银行|China Construction Bank|建行/i],
+  ['abc','中国农业银行',/中国农业银行|Agricultural Bank of China|农行/i],
+  ['comm','交通银行',/交通银行|Bank of Communications|交行/i],
+  ['psbc','中国邮政储蓄银行',/中国邮政储蓄银行|邮储银行|Postal Savings Bank/i],
+  ['citic','中信银行',/中信银行|China CITIC Bank/i],
+  ['spdb','浦发银行',/上海浦东发展银行|浦发银行|SPD Bank/i],
+  ['cmbc','中国民生银行',/中国民生银行|民生银行|CMBC/i],
+  ['cib','兴业银行',/兴业银行|Industrial Bank/i],
+  ['ceb','中国光大银行',/中国光大银行|光大银行|CEB/i],
+  ['gdb','广发银行',/广发银行|China Guangfa Bank|CGB/i],
+  ['hxb','华夏银行',/华夏银行|Huaxia Bank/i]
+];
+
+function bankDisplayName(code){
+  return (bankAliases.find(x=>x[0]===code)||['','未知银行'])[1]
+}
+
 function detectPdfBank(text){
-  if(/平安银行个人账户交易明细|Pingan Bank/i.test(text))return 'pingan';
-  if(/宁波银行交易流水/i.test(text))return 'ningbo';
+  const t=String(text||'');
+  // 平安银行分段PDF：后半段可能没有首页标题，所以额外识别清单结构。
+  if(/平安银行|Pingan Bank/i.test(t) && (
+      /JYLS\d+/i.test(t) ||
+      /List Number/i.test(t) ||
+      /当前第\s*\d+\s*页，共\s*\d+\s*页/i.test(t) ||
+      /Transaction Amount[\s\S]{0,120}Balance/i.test(t)
+  )) return 'pingan';
+
+  // 宁波银行
+  if(/宁波银行交易流水/i.test(t)) return 'ningbo';
+
+  // 其他银行优先按银行名识别
+  for(const [code,,re] of bankAliases){
+    if(re.test(t)) return code;
+  }
+
+  // 没有银行名时，用通用“银行流水/交易明细”表头指纹
+  const headerScore=[
+    /交易日期|交易时间|记账日期|Date/i,
+    /交易金额|发生额|收入金额|支出金额|Transaction Amount/i,
+    /余额|Balance/i,
+    /摘要|用途|备注|Remark|Notes/i,
+    /对方|交易对手|户名|商户|Counterparty/i
+  ].reduce((n,re)=>n+(re.test(t)?1:0),0);
+
+  if(headerScore>=3) return 'generic';
   return '';
+}
+
+
+function extractStatementMeta(text){
+  const t=String(text||'');
+  const listNo=(t.match(/(?:清单编号|List Number)[:：]?\s*([A-Z0-9_-]{6,})/i)||t.match(/\b(JYLS\d{10,})\b/i)||[])[1]||'';
+  const pageCN=t.match(/当前第\s*(\d+)\s*页，共\s*(\d+)\s*页/);
+  const pageEN=t.match(/Page\s*(\d+)\s*,?\s*Total Page\s*(\d+)/i);
+  const pageNo=Number((pageCN||pageEN||[])[1]||0);
+  const totalPages=Number((pageCN||pageEN||[])[2]||0);
+  return {listNo,pageNo,totalPages};
+}
+
+function inferBankNameFromText(text){
+  for(const [code,name,re] of bankAliases){
+    if(re.test(text))return {code,name};
+  }
+  return {code:'generic',name:'银行流水'};
+}
+
+function normalizeHeaderToken(s){
+  return String(s||'').replace(/\s+/g,'').toLowerCase()
+}
+
+function headerIndex(headers,patterns){
+  for(let i=0;i<headers.length;i++){
+    const h=normalizeHeaderToken(headers[i]);
+    if(patterns.some(re=>re.test(h)))return i;
+  }
+  return -1;
 }
 
 function findAccountForPdf(bank,last4=''){
@@ -918,12 +996,91 @@ function parsePinganPdf(lines,sourceName){
   return out;
 }
 
+
+function parseGenericBankPdf(lines,sourceName,bankCode='generic'){
+  const bankName=bankDisplayName(bankCode)==='未知银行'
+    ? inferBankNameFromText(lines.join('\n')).name
+    : bankDisplayName(bankCode);
+
+  const all=lines.join('\n');
+  const meta=extractStatementMeta(all);
+
+  // 尝试识别账户尾号
+  let last4=
+    (all.match(/(?:卡号|账号|A\/C No|卡号\/账号)[^0-9]{0,12}(?:\d{4}\D*){0,4}(\d{4})/i)||[])[1] ||
+    (all.match(/(?:尾号|末四位)\s*[:：]?\s*(\d{4})/i)||[])[1] || '';
+
+  const accountId=findAccountForPdf(bankName,last4);
+  const out=[];
+
+  // 1) 优先识别“序号 + 日期 + 正负金额 + 余额”这一类银行表格
+  for(let i=0;i<lines.length;i++){
+    const line=lines[i].replace(/\s+/g,' ').trim();
+    let m=line.match(/^(?:\d{1,5}\s+)?(\d{4}[-\/.]\d{1,2}[-\/.]\d{1,2})\s+([+-]?\d[\d,]*(?:\.\d{1,2})?)\s+([+-]?\d[\d,]*(?:\.\d{1,2})?)\s*(.*)$/);
+    if(!m)continue;
+
+    const date=m[1].replace(/[\/.]/g,'-').replace(/-(\d)(?=-|$)/g,'-0$1');
+    const signedAmount=Number(m[2].replace(/,/g,''));
+    if(!Number.isFinite(signedAmount))continue;
+
+    let block=[line],j=i+1;
+    while(j<lines.length){
+      const nxt=lines[j].replace(/\s+/g,' ').trim();
+      if(/^(?:\d{1,5}\s+)?\d{4}[-\/.]\d{1,2}[-\/.]\d{1,2}\s+[+-]?\d/.test(nxt))break;
+      if(/Page\s*\d|当前第|Total Page|清单编号|List Number|银行签章/.test(nxt)){j++;continue}
+      if(nxt)block.push(nxt);
+      if(block.length>=6)break;
+      j++;
+    }
+    const raw=block.join(' ');
+    const detail=(m[4]||'')+' '+block.slice(1).join(' ');
+    const summary=(
+      raw.match(/(信用卡自动扣款|信用卡还款|理财赎回|赎回资金转入|理财产品购买|申购|快捷支付|协议支付|电费|水费|燃气费|跨行转账|网银转款|ATM转账|ATM存款|移动收款|付款业务|消费|退款|退货交易|结息|支付利息)/i)||[]
+    )[1]||detail.slice(0,40)||'银行交易';
+
+    let counterparty='';
+    const cp=raw.match(/(?:^|\s)([\u4e00-\u9fa5A-Za-z0-9（）()·\-]{4,}(?:有限公司|银行|税务局|医院|药房|商店|超市|科技|支付|保险|基金|理财))/);
+    if(cp)counterparty=cp[1].trim();
+
+    out.push(makePdfReview({
+      sourceName,bank:bankName,last4,accountId,date,signedAmount,summary,detail,
+      counterparty,merchant:counterparty||summary,raw,
+      bankTxnId:`GEN-${meta.listNo||bankCode}-${date}-${signedAmount}-${out.length+1}`
+    }));
+    i=Math.max(i,j-1);
+  }
+
+  // 2) 若上面一笔都没抓到，尝试“日期 ... 金额”宽松规则
+  if(!out.length){
+    for(let i=0;i<lines.length;i++){
+      const line=lines[i].replace(/\s+/g,' ').trim();
+      const dm=line.match(/(\d{4}[-\/.]\d{1,2}[-\/.]\d{1,2})/);
+      if(!dm)continue;
+      const nums=[...line.matchAll(/(?<!\d)([+-]?\d[\d,]*\.\d{1,2})(?!\d)/g)].map(x=>Number(x[1].replace(/,/g,'')));
+      if(!nums.length)continue;
+      const signedAmount=nums[0];
+      const raw=lines.slice(i,Math.min(lines.length,i+3)).join(' ');
+      const date=dm[1].replace(/[\/.]/g,'-');
+      out.push(makePdfReview({
+        sourceName,bank:bankName,last4,accountId,date,signedAmount,
+        summary:'银行交易',detail:raw,counterparty:'',merchant:'待确认交易',raw,
+        bankTxnId:`GEN2-${meta.listNo||bankCode}-${date}-${signedAmount}-${out.length+1}`
+      }));
+    }
+  }
+
+  return out;
+}
+
 async function handlePdfFiles(files){
   files=[...files];if(!files.length)return;
   if(!window.pdfjsLib){alert('PDF 引擎未加载，请联网后重试。');return}
   pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
   pdfProgWrap.style.display='block';pdfProg.style.width='0%';
+
   let totalAdded=0;
+  const statementGroups=new Map();
+
   try{
     for(let fi=0;fi<files.length;fi++){
       const file=files[fi];
@@ -931,26 +1088,67 @@ async function handlePdfFiles(files){
       const buf=await file.arrayBuffer();
       const pdf=await pdfjsLib.getDocument({data:buf}).promise;
       let allLines=[];
+
       for(let p=1;p<=pdf.numPages;p++){
         pdfStatus.textContent=`${file.name}：读取第 ${p}/${pdf.numPages} 页`;
         const page=await pdf.getPage(p);
         const lines=await pdfPageToLines(page);
         allLines.push(...lines);
-        pdfProg.style.width=Math.round((p/pdf.numPages)*100)+'%';
+        pdfProg.style.width=Math.round(((fi + p/pdf.numPages)/files.length)*100)+'%';
       }
-      const bank=detectPdfBank(allLines.join('\n'));
-      let rows=[];
-      if(bank==='ningbo')rows=parseNingboPdf(allLines,file.name);
-      else if(bank==='pingan')rows=parsePinganPdf(allLines,file.name);
-      else throw new Error(`${file.name}：暂未支持该银行PDF模板`);
 
-      for(const r of rows)reviewItems.unshift(r);
+      const allText=allLines.join('\n');
+      const bank=detectPdfBank(allText);
+      const meta=extractStatementMeta(allText);
+
+      let rows=[];
+      if(bank==='ningbo') rows=parseNingboPdf(allLines,file.name);
+      else if(bank==='pingan') rows=parsePinganPdf(allLines,file.name);
+      else if(bank) rows=parseGenericBankPdf(allLines,file.name,bank);
+      else rows=parseGenericBankPdf(allLines,file.name,'generic');
+
+      // 专用解析器失败时，自动回退通用解析器，不直接报“不支持”
+      if(!rows.length && bank!=='generic'){
+        rows=parseGenericBankPdf(allLines,file.name,bank||'generic');
+      }
+
+      if(!rows.length){
+        // 不抛异常，进入“未解析PDF”提示，允许继续导入其他文件
+        pdfStatus.textContent=`${file.name}：已识别PDF，但未稳定解析出交易。建议保留文件，后续新增模板。`;
+        continue;
+      }
+
+      // 同一清单编号的分段PDF自动归组
+      const groupKey=meta.listNo || `${bank||'generic'}:${file.name}`;
+      if(!statementGroups.has(groupKey)) statementGroups.set(groupKey,[]);
+      statementGroups.get(groupKey).push({
+        fileName:file.name,
+        bank:bank||'generic',
+        pageNo:meta.pageNo||0,
+        totalPages:meta.totalPages||pdf.numPages,
+        rows
+      });
+
       totalAdded+=rows.length;
-      renderQueue();
-      pdfStatus.textContent=`${file.name}：解析 ${rows.length} 笔，已进入待确认队列。`;
     }
+
+    // 合并所有组，按日期+银行流水ID去重
+    for(const [groupKey,parts] of statementGroups){
+      parts.sort((a,b)=>(a.pageNo||0)-(b.pageNo||0));
+      const seen=new Set();
+      for(const part of parts){
+        for(const r of part.rows){
+          const k=r.bankTxnId || `${r.date}|${r.amount}|${r.merchant}|${r.accountId}`;
+          if(seen.has(k))continue;
+          seen.add(k);
+          reviewItems.unshift(r);
+        }
+      }
+    }
+
+    renderQueue();
     pdfProg.style.width='100%';
-    pdfStatus.textContent=`完成：共解析 ${totalAdded} 笔。请检查“待确认项目”，可逐笔修改或批量保存。`;
+    pdfStatus.textContent=`完成：共解析 ${totalAdded} 笔。已自动识别分段PDF并合并；请优先检查低置信度或疑似重复项目。`;
   }catch(e){
     pdfStatus.textContent='PDF解析失败：'+e.message;
     alert('PDF解析失败：'+e.message);
