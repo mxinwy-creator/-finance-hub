@@ -6,8 +6,9 @@
 <meta name="theme-color" content="#f5f5f7">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="财务中枢 V2">
-<title>财务中枢 V2.1.4 · iPhone</title>
+<title>财务中枢 V2.2.0 · iPhone</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@6/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <style>
 :root{
   --bg:#f5f5f7;--card:#fff;--text:#1d1d1f;--muted:#6e6e73;--line:#e5e5ea;
@@ -61,7 +62,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:9px 5px;b
 <body>
 <div class="app">
   <div class="top">
-    <div><div class="title">财务中枢 V2.1.4</div><div class="sub" id="dateText">iPhone · 本地优先 · 截图批量识别</div></div>
+    <div><div class="title">财务中枢 V2.2.0</div><div class="sub" id="dateText">iPhone · 本地优先 · 截图批量识别</div></div>
     <button class="pill" onclick="showPage('import')">＋截图</button>
   </div>
 
@@ -86,6 +87,24 @@ table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:9px 5px;b
   </section>
 
   <section class="page" id="import">
+
+    <div class="section">银行流水 PDF 导入</div>
+    <div class="card">
+      <div class="row between wrap">
+        <div>
+          <b>直接导入手机银行明细 PDF</b>
+          <div class="tiny" style="margin-top:4px">首批支持：平安银行个人账户交易明细、宁波银行交易流水。优先读取 PDF 文字层，不走截图 OCR。</div>
+        </div>
+        <label class="primary" for="pdfInput">选择 PDF</label>
+      </div>
+      <input class="hiddenInput" id="pdfInput" type="file" accept="application/pdf,.pdf" multiple>
+      <div class="progress" id="pdfProgWrap" style="display:none"><i id="pdfProg"></i></div>
+      <div class="tiny" id="pdfStatus" style="margin-top:8px"></div>
+      <div class="notice" style="margin-top:10px">
+        PDF 解析后先进入待确认队列，不会直接批量入账。内部转账、信用卡还款、理财申购/赎回默认不计入普通消费。
+      </div>
+    </div>
+
     <div class="section">截图批量导入</div>
     <div class="card" style="margin-bottom:11px">
       <div class="kicker" style="margin-bottom:8px">识别模式</div>
@@ -203,8 +222,8 @@ table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:9px 5px;b
 <script>
 const STORE='financeHubV2';
 const SNAPSHOT_INDEX='financeHubSnapshots';
-const APP_VERSION='2.1.4';
-const SCHEMA_VERSION=3;
+const APP_VERSION='2.2.0';
+const SCHEMA_VERSION=4;
 const cats=['餐饮','购物','服饰美妆','数码','交通','学习','医疗健康','生活缴费','娱乐','旅行','居住','宠物','人情往来','其他'];
 let state=loadAndMigrate();
 let reviewItems=[];
@@ -219,7 +238,8 @@ function cloneDefault(){
     updatedAt:new Date().toISOString(),
     lastMigrationAt:null,
     accounts:[],
-    transactions:[]
+    transactions:[],
+    categoryRules:[]
   }
 }
 function readSnapshotIndex(){
@@ -291,6 +311,22 @@ function migrateState(input){
     x.lastMigrationAt=new Date().toISOString();
     x.version=3;
     v=3;
+  }
+
+
+  // V3 -> V4: PDF流水、备注、自定义商家分类规则
+  if(v<4){
+    x.categoryRules=Array.isArray(x.categoryRules)?x.categoryRules:[];
+    x.transactions=(x.transactions||[]).map(t=>({
+      note:'',
+      bankTxnId:'',
+      bankSource:'',
+      rawSummary:'',
+      ...t
+    }));
+    x.version=4;
+    x.lastMigrationAt=new Date().toISOString();
+    v=4;
   }
 
   x.appVersion=APP_VERSION;
@@ -679,15 +715,248 @@ function parseText(text,name='截图'){
  let type=/退款成功|已退款|退款金额/i.test(text)?'refund':/信用卡还款|还款成功|已还款/i.test(text)?'repayment':/收入|收款成功/i.test(text)?'income':'expense';
  return {id:uid(),docType:isStatement?'statement':'transaction',sourceName:name,text,amount,merchant:m,date:extractDate(text),dueDate:extractDueDate(text),platform:platform(text),orderNo:extractOrderNo(text),accountId:ac.id,last4:ac.last4,hint:ac.hint||'',category:classify(text+' '+m),type,duplicate:'',duplicateId:'',preview:''}
 }
+
+const txnTypes=[
+  ['expense','消费'],
+  ['refund','退款'],
+  ['income','收入'],
+  ['transfer','内部转账'],
+  ['repayment','信用卡还款'],
+  ['investment_buy','理财申购'],
+  ['investment_redeem','理财赎回'],
+  ['fee','手续费'],
+  ['other','其他']
+];
+
+function txnTypeLabel(v){return (txnTypes.find(x=>x[0]===v)||['','其他'])[1]}
+
+function classifyMerchantSmart(text,merchant=''){
+  const hay=String(text||'')+' '+String(merchant||'');
+  const rules=state.categoryRules||[];
+  const hit=rules.find(r=>r.keyword && norm(hay).includes(norm(r.keyword)));
+  if(hit)return hit.category;
+
+  if(/麦当劳|肯德基|百胜|餐饮|美团外卖|饿了么|咖啡|瑞幸|星巴克|奶茶|茶百道|蜜雪|霸王茶姬/i.test(hay))return '餐饮';
+  if(/滴滴|高德打车|12306|铁路|地铁|公交|航空|航旅|加油|停车|出租车/i.test(hay))return '交通';
+  if(/京东|淘宝|天猫|拼多多|抖音商城|小红书|微店|唯品会|得物/i.test(hay))return '购物';
+  if(/Apple|苹果|华为|小米|数码|电子产品|电脑|手机|耳机/i.test(hay))return '数码';
+  if(/医院|诊所|药房|药店|医疗|健康/i.test(hay))return '医疗健康';
+  if(/电费|水费|燃气|供电|移动|联通|电信|话费|宽带/i.test(hay))return '生活缴费';
+  if(/酒店|携程|去哪儿|飞猪|旅行|民宿/i.test(hay))return '旅行';
+  if(/房租|物业|住房|公寓/i.test(hay))return '居住';
+  if(/保险|人寿|保费/i.test(hay))return '其他';
+  return classify(hay);
+}
+
+function inferBankTxnType(summary,detail,amount,counterparty=''){
+  const t=[summary,detail,counterparty].join(' ');
+  if(/退款|退货|退回/i.test(t))return 'refund';
+  if(/信用卡.*还款|信用卡自动扣款|还款/i.test(t))return 'repayment';
+  if(/理财.*赎回|赎回资金|基金赎回|灵活宝自动赎回/i.test(t))return 'investment_redeem';
+  if(/理财.*购买|产品购买|申购|基金购买|灵活宝交易中产品购买/i.test(t))return 'investment_buy';
+  if(/手续费|服务费/i.test(t))return 'fee';
+  if(/转账|转款|移动收款|ATM转账|云闪付转账/i.test(t)){
+    if(/汪宇/.test(counterparty)||/自己|本人/i.test(t))return 'transfer';
+    return Number(amount)<0?'expense':'income';
+  }
+  if(/消费|快捷支付|协议支付|抖音支付|支付宝|财付通|京东支付|银联支付/i.test(t))return Number(amount)<0?'expense':Number(amount)>0?'refund':'other';
+  return Number(amount)<0?'expense':'income';
+}
+
+function rememberCategoryRule(keyword,category){
+  keyword=String(keyword||'').trim();
+  if(!keyword||!category)return;
+  state.categoryRules=state.categoryRules||[];
+  let r=state.categoryRules.find(x=>norm(x.keyword)===norm(keyword));
+  if(r)r.category=category;
+  else state.categoryRules.push({id:uid(),keyword,category,createdAt:new Date().toISOString()});
+  persist();
+}
+
 function grams(s){s=norm(s);let z=new Set();if(s.length<2){if(s)z.add(s);return z}for(let i=0;i<s.length-1;i++)z.add(s.slice(i,i+2));return z}
 function sim(a,b){let A=grams(a),B=grams(b);if(!A.size||!B.size)return 0;let inter=[...A].filter(x=>B.has(x)).length;return 2*inter/(A.size+B.size)}
-function fingerprint(o){return [dayKey(o.date),Number(o.amount).toFixed(2),norm(o.merchant),o.accountId||'',o.type||'expense',o.orderNo||''].join('|')}
+function fingerprint(o){if(o.bankTxnId)return 'BANK|'+o.bankTxnId;return [dayKey(o.date),Number(o.amount).toFixed(2),norm(o.merchant),o.accountId||'',o.type||'expense',o.orderNo||''].join('|')}
 function dupCheck(o){
  let exact=state.transactions.find(t=>fingerprint(t)===fingerprint(o));if(exact)return {level:'exact',id:exact.id};
  if(o.orderNo){let byOrder=state.transactions.find(t=>t.orderNo&&t.orderNo===o.orderNo);if(byOrder)return {level:'exact',id:byOrder.id}}
  let when=dObj(o.date).getTime(), poss=state.transactions.find(t=>Math.abs(Number(t.amount)-Number(o.amount))<0.01&&Math.abs(dObj(t.date).getTime()-when)<=86400000&&((t.accountId&&o.accountId&&t.accountId===o.accountId)||sim(t.merchant,o.merchant)>.48));
  return poss?{level:'possible',id:poss.id}:{level:'',id:''}
 }
+
+async function pdfPageToLines(page){
+  const tc=await page.getTextContent({normalizeWhitespace:true});
+  const rows=new Map();
+  for(const it of tc.items){
+    const y=Math.round(it.transform[5]*2)/2;
+    if(!rows.has(y))rows.set(y,[]);
+    rows.get(y).push({x:it.transform[4],s:String(it.str||'').trim()});
+  }
+  return [...rows.entries()]
+    .sort((a,b)=>b[0]-a[0])
+    .map(([,arr])=>arr.sort((a,b)=>a.x-b.x).map(x=>x.s).filter(Boolean).join(' ').replace(/\s+/g,' ').trim())
+    .filter(Boolean);
+}
+
+function detectPdfBank(text){
+  if(/平安银行个人账户交易明细|Pingan Bank/i.test(text))return 'pingan';
+  if(/宁波银行交易流水/i.test(text))return 'ningbo';
+  return '';
+}
+
+function findAccountForPdf(bank,last4=''){
+  const b=String(bank||'');
+  let arr=state.accounts.filter(a=>a.type==='debit'||a.type==='credit');
+  if(last4){
+    const x=arr.find(a=>String(a.last4||'')===String(last4));
+    if(x)return x.id;
+  }
+  const x=arr.find(a=>String(a.bank||'').includes(b)||String(a.name||'').includes(b));
+  return x?.id||'';
+}
+
+function makePdfReview(o){
+  const signed=Number(o.signedAmount||0);
+  const abs=Math.abs(signed);
+  const type=o.type||inferBankTxnType(o.summary,o.detail,signed,o.counterparty);
+  const merchant=o.merchant||o.counterparty||o.summary||'未识别交易';
+  const category=(type==='expense'||type==='refund')?classifyMerchantSmart([o.summary,o.detail,o.counterparty].join(' '),merchant):'其他';
+  const item={
+    id:uid(),docType:'transaction',sourceName:o.sourceName||'银行流水PDF',text:o.raw||'',
+    amount:abs,merchant,date:(o.date||dayKey(new Date()))+'T12:00',
+    dueDate:'',platform:o.platform||o.bank||'银行',orderNo:'',
+    accountId:o.accountId||'',last4:o.last4||'',hint:'',
+    category,type,duplicate:'',duplicateId:'',preview:'',
+    note:'',bankTxnId:o.bankTxnId||'',bankSource:o.bank||'',rawSummary:o.summary||'',
+    counterparty:o.counterparty||'',fromPdf:true
+  };
+  const d=dupCheck(item);item.duplicate=d.level;item.duplicateId=d.id;
+  return item;
+}
+
+function parseNingboPdf(lines,sourceName){
+  const all=lines.join('\n');
+  const last4=(all.match(/卡\s*号[:：]?\s*\d{4}\s*\*+\s*\*+\s*(\d{4})/i)||[])[1]||'9074';
+  const accountId=findAccountForPdf('宁波银行',last4);
+  const out=[];
+  for(let i=0;i<lines.length;i++){
+    const line=lines[i];
+    if(!/^\d{4}-\d{2}-\d{2}\s+/.test(line))continue;
+    let block=[line];
+    let j=i+1;
+    while(j<lines.length && !/^\d{4}-\d{2}-\d{2}\s+/.test(lines[j]) && j<i+4){block.push(lines[j]);j++}
+    const raw=block.join(' ');
+    const dm=raw.match(/^(\d{4}-\d{2}-\d{2})\s+(.+?)\s+人民币\s+([+-]?\d+(?:\.\d{1,2})?)\s+([+-]?\d+(?:\.\d{1,2})?)/);
+    if(!dm)continue;
+    const date=dm[1], summary=dm[2].replace(/\s+/g,''), signedAmount=Number(dm[3]);
+    let rest=raw.slice(dm[0].length).trim();
+    const masked=rest.match(/(.+?)\s+(\d{4}\s*\*+\s*\*+\s*(\d{4}))/);
+    let counterparty=masked?masked[1].trim():rest.split(/\s{2,}/)[0]||'';
+    const detail=rest;
+    out.push(makePdfReview({
+      sourceName,bank:'宁波银行',last4,accountId,date,signedAmount,summary,detail,
+      counterparty,merchant:counterparty,raw,
+      bankTxnId:`NB-${date}-${signedAmount}-${out.length+1}`
+    }));
+    i=j-1;
+  }
+  return out;
+}
+
+function parsePinganPdf(lines,sourceName){
+  const all=lines.join('\n');
+  const acct=(all.match(/卡号\/账号[:：]?\s*(\d{8,})/i)||[])[1]||'';
+  const last4=acct?acct.slice(-4):'';
+  const accountId=findAccountForPdf('平安银行',last4);
+  const out=[];
+
+  for(let i=0;i<lines.length;i++){
+    let line=lines[i].replace(/P\s*A?\s*B/ig,' ').replace(/\s+/g,' ').trim();
+
+    // 平安PDF有水印 PAB，部分行会把序号/余额打断。
+    // 这里以“日期 + 带正负号的交易金额”为核心锚点，余额缺失也可解析。
+    const m=line.match(/(?:^|\D)(\d{1,4})?\s*(\d{4}-\d{2}-\d{2})\s+([+-]\d+(?:\.\d+)?)(?:\s+([+-]?\d+(?:\.\d+)?))?\s*(.*)$/);
+    if(!m)continue;
+
+    const seq=m[1]||String(out.length+1);
+    const date=m[2], signedAmount=Number(m[3]);
+    let block=[line],j=i+1;
+
+    while(j<lines.length){
+      const nxt=lines[j].replace(/P\s*A?\s*B/ig,' ').replace(/\s+/g,' ').trim();
+      if(/(?:^|\D)(?:\d{1,4})?\s*\d{4}-\d{2}-\d{2}\s+[+-]\d+/.test(nxt))break;
+      if(/当前第|Page \d|清单编号|List Number|平安银行（银行签章）/.test(nxt)){j++;continue}
+      if(nxt)block.push(nxt);
+      if(block.length>=7)break;
+      j++;
+    }
+
+    const raw=block.join(' ');
+    const tail=m[5]||'';
+    const known=[
+      '信用卡自动扣款','信用卡还款','灵活宝自动赎回','灵活宝交易中产品购买',
+      '网银转款本金','快捷支付','新银联无卡快捷支付-协议支付','人身保险费',
+      '电费','付款业务','跨行转账','移动收款','ATM存款','ATM转账',
+      '支付利息','结息','银联贷记交易入账','代销定期理财产品赎回资金转入'
+    ];
+    const summary=known.find(k=>raw.includes(k))||tail||'银行交易';
+
+    let counterparty='';
+    const cp=raw.match(/(?:平安银行|中国银行总行|中国银行|中国工商银行|工商银行|招商银行|中国农业银行股份有限公司|中国建设银行|支付宝[^ ]*|财付通支付科技有限公司|抖音支付科技有限公司|北京钱袋宝支付技术有限公司)-([^￾]+?)(?:￾|\s+\d{6,}|$)/);
+    if(cp)counterparty=cp[1].trim();
+    if(!counterparty){
+      const company=raw.match(/([一-龥A-Za-z（）()]{4,}(?:有限公司|银行|税务局|保险股份有限公司))/);
+      if(company)counterparty=company[1].trim();
+    }
+
+    out.push(makePdfReview({
+      sourceName,bank:'平安银行',last4,accountId,date,signedAmount,summary,detail:raw,
+      counterparty,merchant:counterparty||summary,raw,
+      bankTxnId:`PA-${seq}-${date}-${signedAmount}`
+    }));
+    i=Math.max(i,j-1);
+  }
+  return out;
+}
+
+async function handlePdfFiles(files){
+  files=[...files];if(!files.length)return;
+  if(!window.pdfjsLib){alert('PDF 引擎未加载，请联网后重试。');return}
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  pdfProgWrap.style.display='block';pdfProg.style.width='0%';
+  let totalAdded=0;
+  try{
+    for(let fi=0;fi<files.length;fi++){
+      const file=files[fi];
+      pdfStatus.textContent=`读取 ${file.name}…`;
+      const buf=await file.arrayBuffer();
+      const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+      let allLines=[];
+      for(let p=1;p<=pdf.numPages;p++){
+        pdfStatus.textContent=`${file.name}：读取第 ${p}/${pdf.numPages} 页`;
+        const page=await pdf.getPage(p);
+        const lines=await pdfPageToLines(page);
+        allLines.push(...lines);
+        pdfProg.style.width=Math.round((p/pdf.numPages)*100)+'%';
+      }
+      const bank=detectPdfBank(allLines.join('\n'));
+      let rows=[];
+      if(bank==='ningbo')rows=parseNingboPdf(allLines,file.name);
+      else if(bank==='pingan')rows=parsePinganPdf(allLines,file.name);
+      else throw new Error(`${file.name}：暂未支持该银行PDF模板`);
+
+      for(const r of rows)reviewItems.unshift(r);
+      totalAdded+=rows.length;
+      renderQueue();
+      pdfStatus.textContent=`${file.name}：解析 ${rows.length} 笔，已进入待确认队列。`;
+    }
+    pdfProg.style.width='100%';
+    pdfStatus.textContent=`完成：共解析 ${totalAdded} 笔。请检查“待确认项目”，可逐笔修改或批量保存。`;
+  }catch(e){
+    pdfStatus.textContent='PDF解析失败：'+e.message;
+    alert('PDF解析失败：'+e.message);
+  }
+}
+
 async function preprocess(file,profile='normal'){
  let bmp=await createImageBitmap(file);
  let targetW;
@@ -764,6 +1033,7 @@ async function handleFiles(files){
    prog.style.width='100%';ocrStatus.textContent=`完成：识别出 ${addedCount} 个待确认项目。`;
  }catch(e){ocrStatus.textContent='OCR 失败：'+e.message;alert('OCR 失败：'+e.message)}
 }
+pdfInput.addEventListener('change',e=>handlePdfFiles(e.target.files));
 galleryInput.addEventListener('change',e=>handleFiles(e.target.files));cameraInput.addEventListener('change',e=>handleFiles(e.target.files));
 async function pasteImage(){
  try{
@@ -810,13 +1080,14 @@ function renderQueue(){
       ${o.docType==='statement'?`<div class="field"><label>到期还款日</label><input type="date" value="${o.dueDate}" onchange="reviewItems[${i}].dueDate=this.value"></div>`:
       `<div class="field"><label>日期时间</label><input type="datetime-local" value="${o.date}" onchange="reviewItems[${i}].date=this.value;refreshDup(${i})"></div>
        <div class="field"><label>分类</label><select onchange="reviewItems[${i}].category=this.value">${copt}</select></div>
-       <div class="field"><label>类型</label><select onchange="reviewItems[${i}].type=this.value;refreshDup(${i})"><option value="expense" ${o.type==='expense'?'selected':''}>支出</option><option value="refund" ${o.type==='refund'?'selected':''}>退款</option><option value="income" ${o.type==='income'?'selected':''}>收入</option><option value="repayment" ${o.type==='repayment'?'selected':''}>信用卡还款</option></select></div>
-       <div class="field"><label>订单号</label><input value="${esc(o.orderNo)}" onchange="reviewItems[${i}].orderNo=this.value;refreshDup(${i})"></div>`}
+       <div class="field"><label>类型</label><select onchange="reviewItems[${i}].type=this.value;refreshDup(${i})">${txnTypes.map(([v,l])=>`<option value="${v}" ${o.type===v?'selected':''}>${l}</option>`).join('')}</select></div>
+       <div class="field"><label>订单号</label><input value="${esc(o.orderNo)}" onchange="reviewItems[${i}].orderNo=this.value;refreshDup(${i})"></div>
+       <div class="field full"><label>备注</label><input value="${esc(o.note||'')}" placeholder="可手动补充：用途、平台、实际购买内容等" onchange="reviewItems[${i}].note=this.value"></div>`}
     </div>
     ${!o.accountId?`<div class="notice" style="margin-top:9px">无法可靠判断具体银行卡${o.last4?'，但识别到尾号 '+esc(o.last4):''}。请在“我的”先登记信用卡/储蓄卡，再回来选择。</div>`:''}
     ${o.duplicate?`<div class="notice" style="margin-top:9px">${o.duplicate==='exact'?'与已有记录完全一致，默认拦截重复保存。':'同金额、相近时间且账户/商家相近，请确认是不是同一笔。'}</div>`:''}
     <details style="margin-top:9px"><summary class="tiny">查看 OCR 原文</summary><div class="code">${esc(o.text)}</div></details>
-    <div class="row wrap" style="margin-top:10px"><button class="primary" onclick="saveReview(${i},false)">${o.docType==='statement'?'确认银行账单':'确认入账'}</button>${o.duplicate?`<button class="secondary" onclick="saveReview(${i},true)">仍然保存</button>`:''}</div>
+    <div class="row wrap" style="margin-top:10px"><button class="primary" onclick="saveReview(${i},false)">${o.docType==='statement'?'确认银行账单':'确认入账'}</button>${o.docType==='transaction'?`<button class="secondary" onclick="rememberCategoryRule(reviewItems[${i}].merchant,reviewItems[${i}].category);alert('已记住：'+reviewItems[${i}].merchant+' → '+reviewItems[${i}].category)">记住商家分类</button>`:''}${o.duplicate?`<button class="secondary" onclick="saveReview(${i},true)">仍然保存</button>`:''}</div>
   </div>`)
  })
 }
@@ -853,7 +1124,7 @@ function saveReview(i,force){
    a.confirmedStatements=a.confirmedStatements.filter(x=>x.dueDate!==rec.dueDate);a.confirmedStatements.push(rec);removeReview(i);persist();alert('银行本期应还已确认。');return
  }
  let d=dupCheck(o);if(d.level==='exact'&&!force){alert('已拦截完全重复记录。');return}if(d.level==='possible'&&!force&&!confirm('存在疑似重复记录。确认这是一笔新的交易吗？'))return;
- state.transactions.push({id:uid(),date:o.date,amount:Number(o.amount),merchant:o.merchant||'未命名',category:o.category||'其他',platform:o.platform||'其他',orderNo:o.orderNo||'',accountId:o.accountId,type:o.type||'expense',source:'screenshot',createdAt:new Date().toISOString()});
+ state.transactions.push({id:uid(),date:o.date,amount:Number(o.amount),merchant:o.merchant||'未命名',category:o.category||'其他',platform:o.platform||'其他',orderNo:o.orderNo||'',accountId:o.accountId,type:o.type||'expense',note:o.note||'',bankTxnId:o.bankTxnId||'',bankSource:o.bankSource||'',rawSummary:o.rawSummary||'',source:o.fromPdf?'bank-pdf':'screenshot',createdAt:new Date().toISOString()});
  removeReview(i);persist()
 }
 function saveAllDetectedAccounts(){
@@ -865,13 +1136,33 @@ function saveAllDetectedAccounts(){
 }
 function icon(c){return {'餐饮':'餐','购物':'购','服饰美妆':'衣','数码':'数','交通':'行','学习':'学','医疗健康':'医','生活缴费':'缴','娱乐':'娱','旅行':'旅','居住':'住','宠物':'宠','人情往来':'礼','其他':'·'}[c]||'·'}
 function txnHtml(t){
- let a=account(t.accountId),plus=['refund','income'].includes(t.type),prefix=t.type==='expense'?'-':t.type==='repayment'?'还款 ':'+';
- return `<div class="txn"><div class="ico">${icon(t.category)}</div><div><div class="txnTitle">${esc(t.merchant)}</div><div class="txnSub">${dayKey(t.date)} · ${esc(t.category)} · ${esc(t.platform)} ${t.orderNo?'· '+esc(t.orderNo):''}<br>${accountChip(a)}</div></div><div><div class="amt ${plus?'plus':''}">${prefix}${money(t.amount)}</div><button class="pill" style="margin-top:5px;font-size:10px" onclick="deleteTxn('${t.id}')">删除</button></div></div>`
+ let a=account(t.accountId),plus=['refund','income','investment_redeem'].includes(t.type);
+ let prefix=plus?'+':(['transfer','repayment','investment_buy'].includes(t.type)?'':'-');
+ return `<div class="txn"><div class="ico">${icon(t.category)}</div><div><div class="txnTitle">${esc(t.merchant)}</div><div class="txnSub">${dayKey(t.date)} · ${esc(t.category)} · ${esc(txnTypeLabel(t.type))} · ${esc(t.platform)}${t.note?' · '+esc(t.note):''}<br>${accountChip(a)}</div></div><div><div class="amt ${plus?'plus':''}">${prefix}${money(t.amount)}</div><div class="row" style="justify-content:flex-end;margin-top:5px"><button class="pill" style="font-size:10px" onclick="editTxn('${t.id}')">编辑</button><button class="pill" style="font-size:10px" onclick="deleteTxn('${t.id}')">删除</button></div></div></div>`
 }
+
+function editTxn(id){
+  let t=state.transactions.find(x=>x.id===id);if(!t)return;
+  let merchant=prompt('商家 / 对方名称：',t.merchant||'');if(merchant===null)return;
+  let note=prompt('备注：',t.note||'');if(note===null)return;
+  let catPrompt='分类编号：\n'+cats.map((c,i)=>`${i+1}. ${c}`).join('\n');
+  let ci=prompt(catPrompt,String(Math.max(1,cats.indexOf(t.category)+1)));if(ci===null)return;
+  let cat=cats[Number(ci)-1]||t.category||'其他';
+  let typePrompt='交易性质编号：\n'+txnTypes.map((x,i)=>`${i+1}. ${x[1]}`).join('\n');
+  let ti=prompt(typePrompt,String(Math.max(1,txnTypes.findIndex(x=>x[0]===t.type)+1)));if(ti===null)return;
+  let type=(txnTypes[Number(ti)-1]||[t.type])[0];
+  t.merchant=merchant.trim()||t.merchant;t.note=note.trim();t.category=cat;t.type=type;
+  if(confirm(`是否记住“${t.merchant} → ${t.category}”这个分类规则？`)){
+    let r=(state.categoryRules||[]).find(x=>norm(x.keyword)===norm(t.merchant));
+    if(r)r.category=t.category;else{state.categoryRules=state.categoryRules||[];state.categoryRules.push({id:uid(),keyword:t.merchant,category:t.category,createdAt:new Date().toISOString()})}
+  }
+  persist();
+}
+
 function deleteTxn(id){if(confirm('删除这条记录？')){state.transactions=state.transactions.filter(t=>t.id!==id);persist()}}
 function renderTransactions(){
  let q=norm(searchQ.value||''),m=filterMonth.value||'',a=filterAccount.value||'';
- let arr=[...state.transactions].sort((x,y)=>dObj(y.date)-dObj(x.date)).filter(t=>(!q||norm(t.merchant+t.platform+t.category+t.orderNo).includes(q))&&(!m||monthKey(t.date)===m)&&(!a||t.accountId===a));
+ let arr=[...state.transactions].sort((x,y)=>dObj(y.date)-dObj(x.date)).filter(t=>(!q||norm(t.merchant+t.platform+t.category+t.orderNo+(t.note||'')+txnTypeLabel(t.type)).includes(q))&&(!m||monthKey(t.date)===m)&&(!a||t.accountId===a));
  txnList.innerHTML=arr.length?arr.map(txnHtml).join(''):'<div class="muted">没有符合条件的记录。</div>'
 }
 function daysInMonth(y,m){return new Date(y,m,0).getDate()}
@@ -994,6 +1285,7 @@ function renderSystemInfo(){
       <tr><th>应用版本</th><td>V${APP_VERSION}</td></tr>
       <tr><th>数据库版本</th><td>Schema ${SCHEMA_VERSION}</td></tr>
       <tr><th>交易记录</th><td>${tx} 条</td></tr>
+      <tr><th>商家分类规则</th><td>${(state.categoryRules||[]).length} 条</td></tr>
       <tr><th>信用卡</th><td>${cards} 张</td></tr>
       <tr><th>储蓄卡</th><td>${debits} 张</td></tr>
       <tr><th>最近更新</th><td>${state.updatedAt?new Date(state.updatedAt).toLocaleString('zh-CN'):'—'}</td></tr>
