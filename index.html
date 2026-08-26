@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#f5f5f7">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="财务中枢 V2">
-<title>财务中枢 V2.2.1 · iPhone</title>
+<title>财务中枢 V2.3.0 · iPhone</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@6/dist/tesseract.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <style>
@@ -62,7 +62,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:9px 5px;b
 <body>
 <div class="app">
   <div class="top">
-    <div><div class="title">财务中枢 V2.2.1</div><div class="sub" id="dateText">iPhone · 本地优先 · 截图批量识别</div></div>
+    <div><div class="title">财务中枢 V2.3.0</div><div class="sub" id="dateText">iPhone · 本地优先 · 截图批量识别</div></div>
     <button class="pill" onclick="showPage('import')">＋截图</button>
   </div>
 
@@ -222,11 +222,12 @@ table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:9px 5px;b
 <script>
 const STORE='financeHubV2';
 const SNAPSHOT_INDEX='financeHubSnapshots';
-const APP_VERSION='2.2.1';
+const APP_VERSION='2.3.0';
 const SCHEMA_VERSION=4;
 const cats=['餐饮','购物','服饰美妆','数码','交通','学习','医疗健康','生活缴费','娱乐','旅行','居住','宠物','人情往来','其他'];
 let state=loadAndMigrate();
 let reviewItems=[];
+let reviewFilter='needs';
 let worker=null;
 let importMode='auto';
 
@@ -748,19 +749,31 @@ function classifyMerchantSmart(text,merchant=''){
   return classify(hay);
 }
 
-function inferBankTxnType(summary,detail,amount,counterparty=''){
-  const t=[summary,detail,counterparty].join(' ');
-  if(/退款|退货|退回/i.test(t))return 'refund';
-  if(/信用卡.*还款|信用卡自动扣款|还款/i.test(t))return 'repayment';
-  if(/理财.*赎回|赎回资金|基金赎回|灵活宝自动赎回/i.test(t))return 'investment_redeem';
-  if(/理财.*购买|产品购买|申购|基金购买|灵活宝交易中产品购买/i.test(t))return 'investment_buy';
-  if(/手续费|服务费/i.test(t))return 'fee';
-  if(/转账|转款|移动收款|ATM转账|云闪付转账/i.test(t)){
-    if(/汪宇/.test(counterparty)||/自己|本人/i.test(t))return 'transfer';
-    return Number(amount)<0?'expense':'income';
+function inferBankTxnType(summary,detail,amount,counterparty='',ownerName=''){
+  const t=[summary,detail,counterparty].join(' ').replace(/\s+/g,' ');
+  const n=Number(amount)||0;
+  const owner=String(ownerName||'').trim();
+  const cp=String(counterparty||'').trim();
+  const selfTransfer=owner && cp && (cp.includes(owner) || new RegExp('[-—\\s]'+owner+'(?:$|[-—\\s])').test(t));
+
+  if(/退款|退货|退回|冲正|撤销/i.test(t))return 'refund';
+  if(/信用卡.{0,8}(还款|自动扣款)|还信用卡|信用卡还款/i.test(t))return 'repayment';
+  if(/(?:灵活宝|理财|基金|产品).{0,12}(赎回|返款)|赎回资金|基金赎回|蚂蚁基金赎回/i.test(t))return 'investment_redeem';
+  if(/(?:灵活宝|理财|基金|产品).{0,12}(购买|申购|扣款)|产品购买|基金购买/i.test(t))return 'investment_buy';
+  if(/手续费|服务费|工本费/i.test(t))return 'fee';
+
+  if(/转账|转款|移动收款|ATM转账|云闪付转账|跨行转账/i.test(t)){
+    if(selfTransfer || /本人|自己账户/i.test(t))return 'transfer';
+    return n<0?'expense':'income';
   }
-  if(/消费|快捷支付|协议支付|抖音支付|支付宝|财付通|京东支付|银联支付/i.test(t))return Number(amount)<0?'expense':Number(amount)>0?'refund':'other';
-  return Number(amount)<0?'expense':'income';
+
+  // ATM存款、现金存入是资金进入，但不是消费。
+  if(/ATM存款|现金存入|存款/i.test(t))return 'income';
+
+  if(/消费|快捷支付|协议支付|抖音支付|支付宝|财付通|京东支付|银联支付|付款业务/i.test(t)){
+    return n<0?'expense':n>0?'income':'other';
+  }
+  return n<0?'expense':'income';
 }
 
 function rememberCategoryRule(keyword,category){
@@ -881,21 +894,55 @@ function headerIndex(headers,patterns){
   return -1;
 }
 
-function findAccountForPdf(bank,last4=''){
-  const b=String(bank||'');
-  let arr=state.accounts.filter(a=>a.type==='debit'||a.type==='credit');
+function findAccountForPdf(bank,last4='',kind='debit'){
+  const b=String(bank||'').trim();
+  let arr=state.accounts.filter(a=>!kind || a.type===kind);
+
+  // 1. 尾号完全匹配是唯一的自动强匹配。
   if(last4){
-    const x=arr.find(a=>String(a.last4||'')===String(last4));
-    if(x)return x.id;
+    const exact=arr.find(a=>String(a.last4||'')===String(last4));
+    if(exact)return exact.id;
   }
-  const x=arr.find(a=>String(a.bank||'').includes(b)||String(a.name||'').includes(b));
-  return x?.id||'';
+
+  // 2. 没有尾号时，仅当“同银行 + 同账户类型”只有唯一候选时才允许匹配。
+  const sameBank=arr.filter(a=>
+    (a.bank&&b&&String(a.bank).includes(b)) ||
+    (a.name&&b&&String(a.name).includes(b))
+  );
+  if(!last4 && sameBank.length===1)return sameBank[0].id;
+
+  // 绝不因为同一家银行把储蓄流水绑定到信用卡。
+  return '';
 }
+
+function extractOwnerName(text){
+  const t=String(text||'');
+  return (
+    (t.match(/户名[:：]?\s*([\u4e00-\u9fa5·]{2,8})/)||[])[1] ||
+    (t.match(/Account Name[:：]?\s*([\u4e00-\u9fa5·]{2,8})/i)||[])[1] ||
+    ''
+  );
+}
+
+function pdfConfidence(item){
+  if(!item.fromPdf)return 'review';
+  if(item.duplicate==='exact')return 'block';
+  if(!item.accountId)return 'block';
+  if(!item.amount || !item.date)return 'block';
+  if(item.type==='other')return 'review';
+  if(item.duplicate==='possible')return 'review';
+  if((item.type==='expense'||item.type==='refund') && (!item.merchant || /待确认|未识别/.test(item.merchant)))return 'review';
+  if((item.type==='expense'||item.type==='refund') && item.category==='其他')return 'review';
+  return 'high';
+}
+
+function confidenceLabel(v){return v==='high'?'可直接入账':v==='review'?'建议核对':'必须处理'}
 
 function makePdfReview(o){
   const signed=Number(o.signedAmount||0);
   const abs=Math.abs(signed);
-  const type=o.type||inferBankTxnType(o.summary,o.detail,signed,o.counterparty);
+  const ownerName=o.ownerName||'';
+  const type=o.type||inferBankTxnType(o.summary,o.detail,signed,o.counterparty,ownerName);
   const merchant=o.merchant||o.counterparty||o.summary||'未识别交易';
   const category=(type==='expense'||type==='refund')?classifyMerchantSmart([o.summary,o.detail,o.counterparty].join(' '),merchant):'其他';
   const item={
@@ -905,16 +952,19 @@ function makePdfReview(o){
     accountId:o.accountId||'',last4:o.last4||'',hint:'',
     category,type,duplicate:'',duplicateId:'',preview:'',
     note:'',bankTxnId:o.bankTxnId||'',bankSource:o.bank||'',rawSummary:o.summary||'',
-    counterparty:o.counterparty||'',fromPdf:true
+    counterparty:o.counterparty||'',fromPdf:true,ownerName,
+    sourceAccountKind:o.sourceAccountKind||'debit'
   };
   const d=dupCheck(item);item.duplicate=d.level;item.duplicateId=d.id;
+  item.confidence=pdfConfidence(item);
   return item;
 }
 
 function parseNingboPdf(lines,sourceName){
   const all=lines.join('\n');
   const last4=(all.match(/卡\s*号[:：]?\s*\d{4}\s*\*+\s*\*+\s*(\d{4})/i)||[])[1]||'9074';
-  const accountId=findAccountForPdf('宁波银行',last4);
+  const ownerName=extractOwnerName(all);
+  const accountId=findAccountForPdf('宁波银行',last4,'debit');
   const out=[];
   for(let i=0;i<lines.length;i++){
     const line=lines[i];
@@ -932,7 +982,7 @@ function parseNingboPdf(lines,sourceName){
     const detail=rest;
     out.push(makePdfReview({
       sourceName,bank:'宁波银行',last4,accountId,date,signedAmount,summary,detail,
-      counterparty,merchant:counterparty,raw,
+      counterparty,merchant:counterparty,raw,ownerName,sourceAccountKind:'debit',
       bankTxnId:`NB-${date}-${signedAmount}-${out.length+1}`
     }));
     i=j-1;
@@ -942,9 +992,10 @@ function parseNingboPdf(lines,sourceName){
 
 function parsePinganPdf(lines,sourceName){
   const all=lines.join('\n');
-  const acct=(all.match(/卡号\/账号[:：]?\s*(\d{8,})/i)||[])[1]||'';
+  const acct=(all.match(/(?:卡号\/账号|A\/C No)[:：]?\s*(\d{8,})/i)||all.match(/\b(\d{12,19})\b/)||[])[1]||'';
   const last4=acct?acct.slice(-4):'';
-  const accountId=findAccountForPdf('平安银行',last4);
+  const ownerName=extractOwnerName(all);
+  const accountId=findAccountForPdf('平安银行',last4,'debit');
   const out=[];
 
   for(let i=0;i<lines.length;i++){
@@ -988,7 +1039,7 @@ function parsePinganPdf(lines,sourceName){
 
     out.push(makePdfReview({
       sourceName,bank:'平安银行',last4,accountId,date,signedAmount,summary,detail:raw,
-      counterparty,merchant:counterparty||summary,raw,
+      counterparty,merchant:counterparty||summary,raw,ownerName,sourceAccountKind:'debit',
       bankTxnId:`PA-${seq}-${date}-${signedAmount}`
     }));
     i=Math.max(i,j-1);
@@ -1010,7 +1061,8 @@ function parseGenericBankPdf(lines,sourceName,bankCode='generic'){
     (all.match(/(?:卡号|账号|A\/C No|卡号\/账号)[^0-9]{0,12}(?:\d{4}\D*){0,4}(\d{4})/i)||[])[1] ||
     (all.match(/(?:尾号|末四位)\s*[:：]?\s*(\d{4})/i)||[])[1] || '';
 
-  const accountId=findAccountForPdf(bankName,last4);
+  const ownerName=extractOwnerName(all);
+  const accountId=findAccountForPdf(bankName,last4,'debit');
   const out=[];
 
   // 1) 优先识别“序号 + 日期 + 正负金额 + 余额”这一类银行表格
@@ -1044,7 +1096,7 @@ function parseGenericBankPdf(lines,sourceName,bankCode='generic'){
 
     out.push(makePdfReview({
       sourceName,bank:bankName,last4,accountId,date,signedAmount,summary,detail,
-      counterparty,merchant:counterparty||summary,raw,
+      counterparty,merchant:counterparty||summary,raw,ownerName,sourceAccountKind:'debit',
       bankTxnId:`GEN-${meta.listNo||bankCode}-${date}-${signedAmount}-${out.length+1}`
     }));
     i=Math.max(i,j-1);
@@ -1063,7 +1115,7 @@ function parseGenericBankPdf(lines,sourceName,bankCode='generic'){
       const date=dm[1].replace(/[\/.]/g,'-');
       out.push(makePdfReview({
         sourceName,bank:bankName,last4,accountId,date,signedAmount,
-        summary:'银行交易',detail:raw,counterparty:'',merchant:'待确认交易',raw,
+        summary:'银行交易',detail:raw,counterparty:'',merchant:'待确认交易',raw,ownerName,sourceAccountKind:'debit',
         bankTxnId:`GEN2-${meta.listNo||bankCode}-${date}-${signedAmount}-${out.length+1}`
       }));
     }
@@ -1148,7 +1200,7 @@ async function handlePdfFiles(files){
 
     renderQueue();
     pdfProg.style.width='100%';
-    pdfStatus.textContent=`完成：共解析 ${totalAdded} 笔。已自动识别分段PDF并合并；请优先检查低置信度或疑似重复项目。`;
+    pdfStatus.textContent=`完成：共解析 ${totalAdded} 笔。高置信度可一键入账；默认只展示需要你审核的项目。`;
   }catch(e){
     pdfStatus.textContent='PDF解析失败：'+e.message;
     alert('PDF解析失败：'+e.message);
@@ -1241,54 +1293,133 @@ async function pasteImage(){
  }catch(e){alert(e.message+'。请改用“从照片选择”。')}
 }
 function reviewAccountOptions(o){return '<option value="">待确认账户</option>'+state.accounts.map(a=>`<option value="${a.id}" ${a.id===o.accountId?'selected':''}>${esc(a.name)}${a.last4?' · '+a.last4:''}</option>`).join('')}
+function setReviewFilter(v){reviewFilter=v;renderQueue()}
+
+function pdfAccountOptions(selected=''){
+  const debit=state.accounts.filter(a=>a.type==='debit');
+  return `<option value="">请选择储蓄卡/银行账户</option>`+debit.map(a=>`<option value="${a.id}" ${a.id===selected?'selected':''}>${esc(a.name)}${a.last4?' · '+esc(a.last4):''}</option>`).join('');
+}
+
+function refreshPdfConfidence(o){
+  if(!o||!o.fromPdf)return;
+  const d=dupCheck(o);o.duplicate=d.level;o.duplicateId=d.id;
+  o.confidence=pdfConfidence(o);
+}
+
+function applyPdfAccount(accountId){
+  if(!accountId)return;
+  const a=account(accountId);
+  if(!a||a.type!=='debit'){alert('银行流水只能批量关联到储蓄卡/银行账户。');return}
+  reviewItems.forEach(o=>{
+    if(o.fromPdf && o.docType==='transaction' && !o.accountId){o.accountId=accountId;refreshPdfConfidence(o)}
+  });
+  renderQueue();
+}
+
+function commitTransaction(o){
+  state.transactions.push({
+    id:uid(),date:o.date,amount:Number(o.amount),merchant:o.merchant||'未命名',category:o.category||'其他',
+    platform:o.platform||'其他',orderNo:o.orderNo||'',accountId:o.accountId,type:o.type||'expense',note:o.note||'',
+    bankTxnId:o.bankTxnId||'',bankSource:o.bankSource||'',rawSummary:o.rawSummary||'',
+    source:o.fromPdf?'bank-pdf':'screenshot',createdAt:new Date().toISOString()
+  });
+}
+
+function batchSaveHighConfidence(){
+  const ids=reviewItems.filter(o=>o.fromPdf&&o.docType==='transaction'&&pdfConfidence(o)==='high').map(o=>o.id);
+  if(!ids.length){alert('当前没有可直接入账的高置信度流水。');return}
+  if(!confirm(`确认一键入账 ${ids.length} 笔高置信度流水？`))return;
+  const idSet=new Set(ids);let saved=0;
+  for(const o of reviewItems){
+    if(!idSet.has(o.id))continue;
+    const d=dupCheck(o);if(d.level)continue;
+    commitTransaction(o);saved++;
+  }
+  reviewItems=reviewItems.filter(o=>!idSet.has(o.id));
+  persist();renderQueue();
+  alert(`已入账 ${saved} 笔；重复项未保存。`);
+}
+
+function batchIgnoreExactDuplicates(){
+  const before=reviewItems.length;
+  reviewItems=reviewItems.filter(o=>!(o.fromPdf&&o.duplicate==='exact'));
+  const n=before-reviewItems.length;renderQueue();
+  if(n)alert(`已从待确认队列移除 ${n} 笔完全重复流水。`)
+}
+
 function renderQueue(){
  const accountItems=reviewItems.filter(x=>x.docType==='account');
- queue.innerHTML=reviewItems.length?'':'<div class="card muted">当前没有待确认截图。</div>';
+ const pdfItems=reviewItems.filter(x=>x.fromPdf&&x.docType==='transaction');
+ pdfItems.forEach(refreshPdfConfidence);
+ const high=pdfItems.filter(x=>x.confidence==='high').length;
+ const needs=pdfItems.filter(x=>x.confidence==='review').length;
+ const block=pdfItems.filter(x=>x.confidence==='block').length;
+ const exactDup=pdfItems.filter(x=>x.duplicate==='exact').length;
+
+ queue.innerHTML=reviewItems.length?'':'<div class="card muted">当前没有待确认项目。</div>';
+
+ if(pdfItems.length){
+   queue.insertAdjacentHTML('beforeend',`<div class="card" style="margin-bottom:12px">
+     <div class="section" style="margin:0 0 8px">银行流水中心</div>
+     <div class="tiny">本批共 ${pdfItems.length} 笔：<b>可直接入账 ${high}</b> · 建议核对 ${needs} · 必须处理 ${block}</div>
+     <div class="row wrap" style="margin-top:10px">
+       <button class="primary" onclick="batchSaveHighConfidence()">一键入账 ${high} 笔</button>
+       <button class="secondary" onclick="setReviewFilter('needs')">只看需审核</button>
+       <button class="secondary" onclick="setReviewFilter('all')">查看全部</button>
+       ${exactDup?`<button class="secondary" onclick="batchIgnoreExactDuplicates()">移除重复 ${exactDup} 笔</button>`:''}
+     </div>
+     ${block?`<div class="notice" style="margin-top:10px"><b>${block} 笔必须处理。</b> 最常见原因是源银行账户没有精确匹配。不会再自动绑定到同银行信用卡。</div>`:''}
+     ${block?`<div class="field" style="margin-top:10px"><label>给未匹配流水批量指定源储蓄账户</label><select onchange="applyPdfAccount(this.value);this.value=''">${pdfAccountOptions('')}</select></div>`:''}
+   </div>`);
+ }
+
  if(accountItems.length>=2){
    queue.insertAdjacentHTML('beforeend',`<div class="oknote"><b>检测到 ${accountItems.length} 张银行卡</b><br>系统已拆分为独立账户。请确认每张卡的类型；截图未注明类型的不会自动猜。<div style="margin-top:8px"><button class="primary" onclick="saveAllDetectedAccounts()">保存全部已确认银行卡</button></div></div>`);
  }
+
  reviewItems.forEach((o,i)=>{
+  if(o.fromPdf&&o.docType==='transaction'&&reviewFilter==='needs'&&pdfConfidence(o)==='high')return;
+
   if(o.docType==='account'){
     const typeOptions=`<option value="" ${!o.accountType?'selected':''}>待确认</option><option value="credit" ${o.accountType==='credit'?'selected':''}>信用卡</option><option value="debit" ${o.accountType==='debit'?'selected':''}>储蓄卡</option>`;
     queue.insertAdjacentHTML('beforeend',`<div class="review">
       <div class="reviewHead"><div class="row">${o.preview?`<img class="thumb" src="${o.preview}">`:''}<div><span class="chip purple">银行卡账户</span>${o.duplicateAccount?' <span class="chip warn">疑似已存在</span>':''}<div class="txnTitle" style="margin-top:7px">${esc(o.bank)} · 尾号 ${esc(o.last4)}</div><div class="tiny">${esc(o.sourceName)}</div></div></div><button class="pill" onclick="removeReview(${i})">移除</button></div>
       <div class="form" style="margin-top:11px">
-        <div class="field"><label>银行</label><input value="${esc(o.bank)}" onchange="reviewItems[${i}].bank=this.value;reviewItems[${i}].accountName=this.value+(reviewItems[${i}].accountType==='credit'?'信用卡':reviewItems[${i}].accountType==='debit'?'储蓄卡':'银行卡')"></div>
+        <div class="field"><label>银行</label><input value="${esc(o.bank)}" onchange="reviewItems[${i}].bank=this.value"></div>
         <div class="field"><label>卡尾号</label><input inputmode="numeric" maxlength="4" value="${esc(o.last4)}" onchange="reviewItems[${i}].last4=this.value"></div>
-        <div class="field"><label>账户类型</label><select onchange="reviewItems[${i}].accountType=this.value;reviewItems[${i}].accountName=reviewItems[${i}].bank+(this.value==='credit'?'信用卡':this.value==='debit'?'储蓄卡':'银行卡');renderQueue()">${typeOptions}</select></div>
+        <div class="field"><label>账户类型</label><select onchange="reviewItems[${i}].accountType=this.value;renderQueue()">${typeOptions}</select></div>
         <div class="field"><label>账户名称</label><input value="${esc(o.accountName)}" onchange="reviewItems[${i}].accountName=this.value"></div>
-        ${o.accountType==='credit'?`<div class="field"><label>账单日（可稍后补）</label><input type="number" min="1" max="31" placeholder="如 5" value="${esc(o.billDay)}" onchange="reviewItems[${i}].billDay=this.value"></div><div class="field"><label>还款日（可稍后补）</label><input type="number" min="1" max="31" placeholder="如 25" value="${esc(o.dueDay)}" onchange="reviewItems[${i}].dueDay=this.value"></div>`:''}
       </div>
-      ${!o.accountType?'<div class="notice" style="margin-top:9px">截图里没有可靠识别到“信用卡/储蓄卡”，请你手动选择后再保存。</div>':''}
-      ${o.duplicateAccount?'<div class="notice" style="margin-top:9px">账户库里可能已有同银行、同尾号的卡，请检查后避免重复添加。</div>':''}
-      <details style="margin-top:9px"><summary class="tiny">查看这张卡的 OCR 片段</summary><div class="code">${esc(o.text)}</div></details>
       <div class="row wrap" style="margin-top:10px"><button class="primary" onclick="saveReview(${i},false)">加入账户库</button></div>
-    </div>`);
-    return;
+    </div>`);return;
   }
 
   let copt=cats.map(c=>`<option ${c===o.category?'selected':''}>${c}</option>`).join('');
-  let badges=`<span class="chip ${o.docType==='statement'?'purple':''}">${o.docType==='statement'?'信用卡账单':'交易'}</span>${o.duplicate?` <span class="chip warn">${o.duplicate==='exact'?'完全重复':'疑似重复'}</span>`:''}`;
+  const conf=o.fromPdf?pdfConfidence(o):'';
+  const confChip=conf?` <span class="chip ${conf==='block'?'warn':conf==='high'?'':'purple'}">${confidenceLabel(conf)}</span>`:'';
+  let badges=`<span class="chip ${o.docType==='statement'?'purple':''}">${o.docType==='statement'?'信用卡账单':'交易'}</span>${confChip}${o.duplicate?` <span class="chip warn">${o.duplicate==='exact'?'完全重复':'疑似重复'}</span>`:''}`;
+  const accountOptions=o.fromPdf?pdfAccountOptions(o.accountId):reviewAccountOptions(o);
   queue.insertAdjacentHTML('beforeend',`<div class="review">
     <div class="reviewHead"><div class="row">${o.preview?`<img class="thumb" src="${o.preview}">`:''}<div>${badges}<div class="txnTitle" style="margin-top:7px">${esc(o.merchant)}</div><div class="tiny">${esc(o.platform)} · ${esc(o.sourceName)}</div></div></div><button class="pill" onclick="removeReview(${i})">移除</button></div>
     <div class="form" style="margin-top:11px">
-      <div class="field"><label>${o.docType==='statement'?'本期应还':'金额'}</label><input type="number" step=".01" value="${o.amount||''}" onchange="reviewItems[${i}].amount=Number(this.value);refreshDup(${i})"></div>
-      <div class="field"><label>名称 / 商家</label><input value="${esc(o.merchant)}" onchange="reviewItems[${i}].merchant=this.value;refreshDup(${i})"></div>
-      <div class="field"><label>账户</label><select onchange="reviewItems[${i}].accountId=this.value;refreshDup(${i})">${reviewAccountOptions(o)}</select></div>
+      <div class="field"><label>${o.docType==='statement'?'本期应还':'金额'}</label><input type="number" step=".01" value="${o.amount||''}" onchange="reviewItems[${i}].amount=Number(this.value);refreshDup(${i});refreshPdfConfidence(reviewItems[${i}]);renderQueue()"></div>
+      <div class="field"><label>名称 / 商家</label><input value="${esc(o.merchant)}" onchange="reviewItems[${i}].merchant=this.value;refreshDup(${i});refreshPdfConfidence(reviewItems[${i}])"></div>
+      <div class="field"><label>账户</label><select onchange="reviewItems[${i}].accountId=this.value;refreshDup(${i});refreshPdfConfidence(reviewItems[${i}]);renderQueue()">${accountOptions}</select></div>
       ${o.docType==='statement'?`<div class="field"><label>到期还款日</label><input type="date" value="${o.dueDate}" onchange="reviewItems[${i}].dueDate=this.value"></div>`:
       `<div class="field"><label>日期时间</label><input type="datetime-local" value="${o.date}" onchange="reviewItems[${i}].date=this.value;refreshDup(${i})"></div>
-       <div class="field"><label>分类</label><select onchange="reviewItems[${i}].category=this.value">${copt}</select></div>
-       <div class="field"><label>类型</label><select onchange="reviewItems[${i}].type=this.value;refreshDup(${i})">${txnTypes.map(([v,l])=>`<option value="${v}" ${o.type===v?'selected':''}>${l}</option>`).join('')}</select></div>
+       <div class="field"><label>分类</label><select onchange="reviewItems[${i}].category=this.value;refreshPdfConfidence(reviewItems[${i}])">${copt}</select></div>
+       <div class="field"><label>类型</label><select onchange="reviewItems[${i}].type=this.value;refreshDup(${i});refreshPdfConfidence(reviewItems[${i}]);renderQueue()">${txnTypes.map(([v,l])=>`<option value="${v}" ${o.type===v?'selected':''}>${l}</option>`).join('')}</select></div>
        <div class="field"><label>订单号</label><input value="${esc(o.orderNo)}" onchange="reviewItems[${i}].orderNo=this.value;refreshDup(${i})"></div>
        <div class="field full"><label>备注</label><input value="${esc(o.note||'')}" placeholder="可手动补充：用途、平台、实际购买内容等" onchange="reviewItems[${i}].note=this.value"></div>`}
     </div>
-    ${!o.accountId?`<div class="notice" style="margin-top:9px">无法可靠判断具体银行卡${o.last4?'，但识别到尾号 '+esc(o.last4):''}。请在“我的”先登记信用卡/储蓄卡，再回来选择。</div>`:''}
-    ${o.duplicate?`<div class="notice" style="margin-top:9px">${o.duplicate==='exact'?'与已有记录完全一致，默认拦截重复保存。':'同金额、相近时间且账户/商家相近，请确认是不是同一笔。'}</div>`:''}
-    <details style="margin-top:9px"><summary class="tiny">查看 OCR 原文</summary><div class="code">${esc(o.text)}</div></details>
-    <div class="row wrap" style="margin-top:10px"><button class="primary" onclick="saveReview(${i},false)">${o.docType==='statement'?'确认银行账单':'确认入账'}</button>${o.docType==='transaction'?`<button class="secondary" onclick="rememberCategoryRule(reviewItems[${i}].merchant,reviewItems[${i}].category);alert('已记住：'+reviewItems[${i}].merchant+' → '+reviewItems[${i}].category)">记住商家分类</button>`:''}${o.duplicate?`<button class="secondary" onclick="saveReview(${i},true)">仍然保存</button>`:''}</div>
+    ${o.fromPdf&&!o.accountId?`<div class="notice" style="margin-top:9px">未找到与该流水源账户精确匹配的储蓄卡。请在上方批量指定一次，或先到“我的”登记该储蓄账户。</div>`:''}
+    ${o.duplicate?`<div class="notice" style="margin-top:9px">${o.duplicate==='exact'?'与已有记录完全一致，默认不会重复保存。':'存在疑似重复，请确认。'}</div>`:''}
+    <details style="margin-top:9px"><summary class="tiny">查看原始文本</summary><div class="code">${esc(o.text)}</div></details>
+    <div class="row wrap" style="margin-top:10px"><button class="primary" onclick="saveReview(${i},false)">${o.docType==='statement'?'确认银行账单':'确认入账'}</button>${o.docType==='transaction'?`<button class="secondary" onclick="rememberCategoryRule(reviewItems[${i}].merchant,reviewItems[${i}].category);alert('已记住分类规则')">记住商家分类</button>`:''}${o.duplicate?`<button class="secondary" onclick="saveReview(${i},true)">仍然保存</button>`:''}</div>
   </div>`)
  })
 }
+
 function refreshDup(i){let o=reviewItems[i],d=o.docType==='transaction'?dupCheck(o):{level:'',id:''};o.duplicate=d.level;o.duplicateId=d.id;renderQueue()}
 function removeReview(i){if(reviewItems[i]?.preview)URL.revokeObjectURL(reviewItems[i].preview);reviewItems.splice(i,1);renderQueue()}
 function saveReview(i,force){
@@ -1322,7 +1453,8 @@ function saveReview(i,force){
    a.confirmedStatements=a.confirmedStatements.filter(x=>x.dueDate!==rec.dueDate);a.confirmedStatements.push(rec);removeReview(i);persist();alert('银行本期应还已确认。');return
  }
  let d=dupCheck(o);if(d.level==='exact'&&!force){alert('已拦截完全重复记录。');return}if(d.level==='possible'&&!force&&!confirm('存在疑似重复记录。确认这是一笔新的交易吗？'))return;
- state.transactions.push({id:uid(),date:o.date,amount:Number(o.amount),merchant:o.merchant||'未命名',category:o.category||'其他',platform:o.platform||'其他',orderNo:o.orderNo||'',accountId:o.accountId,type:o.type||'expense',note:o.note||'',bankTxnId:o.bankTxnId||'',bankSource:o.bankSource||'',rawSummary:o.rawSummary||'',source:o.fromPdf?'bank-pdf':'screenshot',createdAt:new Date().toISOString()});
+ if(o.fromPdf){let aa=account(o.accountId);if(!aa||aa.type!=='debit'){alert('银行账户流水必须关联到储蓄卡/银行账户，不能关联信用卡。');return}}
+ commitTransaction(o);
  removeReview(i);persist()
 }
 function saveAllDetectedAccounts(){
