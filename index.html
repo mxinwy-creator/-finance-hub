@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#f5f5f7">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="财务中枢 V2">
-<title>财务中枢 V2.1 · iPhone</title>
+<title>财务中枢 V2.1.1 · iPhone</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@6/dist/tesseract.min.js"></script>
 <style>
 :root{
@@ -61,7 +61,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:9px 5px;b
 <body>
 <div class="app">
   <div class="top">
-    <div><div class="title">财务中枢 V2.1</div><div class="sub" id="dateText">iPhone · 本地优先 · 截图批量识别</div></div>
+    <div><div class="title">财务中枢 V2.1.1</div><div class="sub" id="dateText">iPhone · 本地优先 · 截图批量识别</div></div>
     <button class="pill" onclick="showPage('import')">＋截图</button>
   </div>
 
@@ -192,7 +192,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:9px 5px;b
 <script>
 const STORE='financeHubV2';
 const SNAPSHOT_INDEX='financeHubSnapshots';
-const APP_VERSION='2.1.0';
+const APP_VERSION='2.1.1';
 const SCHEMA_VERSION=3;
 const cats=['餐饮','购物','服饰美妆','数码','交通','学习','医疗健康','生活缴费','娱乐','旅行','居住','宠物','人情往来','其他'];
 let state=loadAndMigrate();
@@ -391,14 +391,48 @@ function merchant(lines,text){
  return cand[0]||platform(text)+'消费'
 }
 function matchAccount(text){
- let last=(text.match(/(?:尾号|末四位|卡号末四位|[\(（])\s*(\d{4})\s*[\)）]?/i)||[])[1]||'';
- let type=/信用卡|贷记卡/i.test(text)?'credit':/储蓄卡|借记卡/i.test(text)?'debit':'';
- if(last){let a=state.accounts.find(a=>a.last4===last&&(!type||a.type===type));if(a)return {id:a.id,last4:last,confidence:'high'}}
- let exact=state.accounts.filter(a=>(a.name&&text.includes(a.name))||(a.bank&&text.includes(a.bank)));
- if(exact.length===1)return {id:exact[0].id,last4,confidence:'medium'};
- if(/支付宝|余额宝|花呗/i.test(text)){let a=state.accounts.find(a=>a.type==='wallet'&&/支付宝|余额宝|花呗/i.test(a.name+a.bank));if(a)return {id:a.id,last4,confidence:'medium'}}
- if(/微信支付|零钱|零钱通/i.test(text)){let a=state.accounts.find(a=>a.type==='wallet'&&/微信|零钱/i.test(a.name+a.bank));if(a)return {id:a.id,last4,confidence:'medium'}}
- return {id:'',last4,confidence:'low',hint:type}
+  // 只识别尾号4位，不需要也不保存完整银行卡号。
+  // 支持：尾号1234 / 末四位1234 / (1234) / ****1234 / **** 1234 / ••••1234
+  let last =
+    (text.match(/(?:尾号|末四位|卡号末四位|卡尾号)\s*[:：]?\s*(\d{4})/i)||[])[1] ||
+    (text.match(/[\(（]\s*(\d{4})\s*[\)）]/)||[])[1] ||
+    (text.match(/(?:\*{2,}|•{2,}|·{2,}|x{2,}|X{2,})\s*(\d{4})/i)||[])[1] ||
+    '';
+
+  let type=/信用卡|贷记卡/i.test(text)?'credit':/储蓄卡|借记卡|储蓄账户/i.test(text)?'debit':'';
+
+  // 1. 尾号 + 类型：最高置信度
+  if(last){
+    let a=state.accounts.find(a=>a.last4===last && (!type || a.type===type));
+    if(a)return {id:a.id,last4:last,confidence:'high'};
+  }
+
+  // 2. 银行/账户名称文本匹配
+  let exact=state.accounts.filter(a=>
+    (a.name && text.includes(a.name)) ||
+    (a.bank && text.includes(a.bank))
+  );
+
+  // 如果识别到了类型，优先过滤同类型账户
+  if(type){
+    let typed=exact.filter(a=>a.type===type);
+    if(typed.length===1)return {id:typed[0].id,last4:last,confidence:'medium'};
+  }
+  if(exact.length===1)return {id:exact[0].id,last4:last,confidence:'medium'};
+
+  // 3. 支付宝/微信钱包
+  if(/支付宝|余额宝|花呗/i.test(text)){
+    let a=state.accounts.find(a=>a.type==='wallet' && /支付宝|余额宝|花呗/i.test((a.name||'')+(a.bank||'')));
+    if(a)return {id:a.id,last4:last,confidence:'medium'};
+  }
+  if(/微信支付|零钱|零钱通/i.test(text)){
+    let a=state.accounts.find(a=>a.type==='wallet' && /微信|零钱/i.test((a.name||'')+(a.bank||'')));
+    if(a)return {id:a.id,last4:last,confidence:'medium'};
+  }
+
+  // 修复：这里原版错误返回了未定义变量 last4，导致 iPhone Safari 报
+  // "Can't find variable: last4"
+  return {id:'',last4:last,confidence:'low',hint:type};
 }
 function parseText(text,name='截图'){
  let lines=linesOf(text), isStatement=/本期应还|本期账单|账单金额|到期还款日|最低还款/i.test(text), ac=matchAccount(text), amounts=amountCandidates(lines), amount=amounts[0]?.v||0;
