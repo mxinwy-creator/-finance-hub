@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#f5f5f7">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="财务中枢 V2">
-<title>财务中枢 V2.1.1 · iPhone</title>
+<title>财务中枢 V2.1.2 · iPhone</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@6/dist/tesseract.min.js"></script>
 <style>
 :root{
@@ -61,7 +61,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:9px 5px;b
 <body>
 <div class="app">
   <div class="top">
-    <div><div class="title">财务中枢 V2.1.1</div><div class="sub" id="dateText">iPhone · 本地优先 · 截图批量识别</div></div>
+    <div><div class="title">财务中枢 V2.1.2</div><div class="sub" id="dateText">iPhone · 本地优先 · 截图批量识别</div></div>
     <button class="pill" onclick="showPage('import')">＋截图</button>
   </div>
 
@@ -89,7 +89,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:9px 5px;b
     <div class="section">截图批量导入</div>
     <div class="drop">
       <strong>一次选择多张截图</strong>
-      <p>适合淘宝、拼多多、京东、抖音、小红书、支付宝、微信、银行信用卡账单。V2 会先增强图片，再 OCR、查重、分类。</p>
+      <p>适合淘宝、拼多多、京东、抖音、小红书、支付宝、微信、银行账单，以及“银行卡列表截图”。银行卡列表会自动拆成多个独立账户。</p>
       <div class="row wrap" style="justify-content:center">
         <label class="primary" for="galleryInput">从照片选择</label>
         <label class="secondary" for="cameraInput">直接拍照</label>
@@ -192,7 +192,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:9px 5px;b
 <script>
 const STORE='financeHubV2';
 const SNAPSHOT_INDEX='financeHubSnapshots';
-const APP_VERSION='2.1.1';
+const APP_VERSION='2.1.2';
 const SCHEMA_VERSION=3;
 const cats=['餐饮','购物','服饰美妆','数码','交通','学习','医疗健康','生活缴费','娱乐','旅行','居住','宠物','人情往来','其他'];
 let state=loadAndMigrate();
@@ -434,6 +434,99 @@ function matchAccount(text){
   // "Can't find variable: last4"
   return {id:'',last4:last,confidence:'low',hint:type};
 }
+
+function extractMaskedLast4(text){
+  return (
+    (text.match(/(?:尾号|末四位|卡号末四位|卡尾号)\s*[:：]?\s*(\d{4})/i)||[])[1] ||
+    (text.match(/[\(（]\s*(\d{4})\s*[\)）]/)||[])[1] ||
+    (text.match(/(?:\*{2,}|•{2,}|·{2,}|x{2,}|X{2,})\s*(\d{4})/i)||[])[1] ||
+    ''
+  );
+}
+function normalizeBankName(line){
+  const banks=[
+    ['平安银行',/平安银行/i],
+    ['中国工商银行',/中国工商银行|工商银行|工行/i],
+    ['中国银行',/(?:^|[^工商])中国银行|中行/i],
+    ['招商银行',/招商银行|招行/i],
+    ['宁波银行',/宁波银行/i],
+    ['中国建设银行',/中国建设银行|建设银行|建行/i],
+    ['中国农业银行',/中国农业银行|农业银行|农行/i],
+    ['交通银行',/交通银行|交行/i],
+    ['中国邮政储蓄银行',/中国邮政储蓄银行|邮政储蓄银行|邮储银行|邮储/i],
+    ['中信银行',/中信银行/i],
+    ['中国光大银行',/中国光大银行|光大银行/i],
+    ['上海浦东发展银行',/上海浦东发展银行|浦发银行/i],
+    ['广发银行',/广发银行/i],
+    ['中国民生银行',/中国民生银行|民生银行/i],
+    ['兴业银行',/兴业银行/i],
+    ['华夏银行',/华夏银行/i]
+  ];
+  for(const [name,re] of banks)if(re.test(line))return name;
+  return '';
+}
+function cardTypeFromText(text){
+  if(/信用卡|贷记卡/i.test(text))return 'credit';
+  if(/储蓄卡|借记卡|储蓄账户/i.test(text))return 'debit';
+  return '';
+}
+function parseAccountList(text,name='银行卡截图'){
+  const lines=linesOf(text);
+  const found=[];
+  for(let i=0;i<lines.length;i++){
+    const bank=normalizeBankName(lines[i]);
+    if(!bank)continue;
+
+    // 只看当前银行附近几行，避免把下一张卡的尾号错配过来
+    let windowLines=[lines[i]];
+    for(let j=i+1;j<Math.min(lines.length,i+4);j++){
+      if(j>i && normalizeBankName(lines[j]))break;
+      windowLines.push(lines[j]);
+    }
+    const win=windowLines.join(' ');
+    let last4=extractMaskedLast4(win);
+
+    // OCR 常把 "**** 0715" 分成两行；在当前银行块里再找纯4位尾号，
+    // 但排除年份等明显非卡尾号内容。
+    if(!last4){
+      for(const ln of windowLines){
+        let m=ln.match(/(?:\*{2,}|•{2,}|·{2,})?\s*(\d{4})\s*$/);
+        if(m && !/^20\d{2}$/.test(m[1])){last4=m[1];break}
+      }
+    }
+    if(!last4)continue;
+
+    const type=cardTypeFromText(win);
+    const duplicateAccount=state.accounts.some(a=>a.last4===last4 && (
+      (a.bank&&normalizeBankName(a.bank)===bank) ||
+      (a.name&&normalizeBankName(a.name)===bank) ||
+      (!a.bank&&!a.name)
+    ));
+    found.push({
+      id:uid(),
+      docType:'account',
+      sourceName:name,
+      text:win,
+      bank,
+      last4,
+      accountType:type,
+      accountName:bank+(type==='credit'?'信用卡':type==='debit'?'储蓄卡':'银行卡'),
+      billDay:'',
+      dueDay:'',
+      duplicateAccount,
+      preview:''
+    });
+  }
+
+  // 按 bank + 尾号去重
+  const seen=new Set();
+  return found.filter(x=>{
+    const k=x.bank+'|'+x.last4;
+    if(seen.has(k))return false;
+    seen.add(k);return true;
+  });
+}
+
 function parseText(text,name='截图'){
  let lines=linesOf(text), isStatement=/本期应还|本期账单|账单金额|到期还款日|最低还款/i.test(text), ac=matchAccount(text), amounts=amountCandidates(lines), amount=amounts[0]?.v||0;
  if(isStatement){let preferred=amountCandidates(lines.filter(x=>/本期应还|应还款额|账单金额/i.test(x)));if(preferred.length)amount=preferred[0].v}
@@ -465,12 +558,31 @@ async function handleFiles(files){
  files=[...files];if(!files.length)return;progWrap.style.display='block';ocrStatus.textContent='准备 OCR…';
  try{
    let w=await ensureWorker();
+   let addedCount=0;
    for(let i=0;i<files.length;i++){
      ocrStatus.textContent=`正在识别 ${i+1}/${files.length}：${files[i].name}`;
      let processed=await preprocess(files[i]);let ret=await w.recognize(processed,{rotateAuto:true});
-     let o=parseText(ret.data.text,files[i].name);o.preview=URL.createObjectURL(files[i]);let d=dupCheck(o);o.duplicate=d.level;o.duplicateId=d.id;reviewItems.unshift(o);renderQueue()
+     let txt=ret.data.text||'';
+     let accountsDetected=parseAccountList(txt,files[i].name);
+
+     // 如果一张图里识别到至少2张银行卡，按“账户列表截图”处理，
+     // 不再把尾号误当成交易金额。
+     if(accountsDetected.length>=2){
+       for(const a of accountsDetected){
+         a.preview=URL.createObjectURL(files[i]);
+         reviewItems.unshift(a);
+         addedCount++;
+       }
+     }else{
+       let o=parseText(txt,files[i].name);
+       o.preview=URL.createObjectURL(files[i]);
+       let d=dupCheck(o);o.duplicate=d.level;o.duplicateId=d.id;
+       reviewItems.unshift(o);addedCount++;
+     }
+     renderQueue()
    }
-   prog.style.width='100%';ocrStatus.textContent=`完成：${files.length} 张截图已进入待确认队列。`
+   prog.style.width='100%';
+   ocrStatus.textContent=`完成：识别出 ${addedCount} 个待确认项目。`
  }catch(e){ocrStatus.textContent='OCR 失败：'+e.message;alert('OCR 失败：'+e.message)}
 }
 galleryInput.addEventListener('change',e=>handleFiles(e.target.files));cameraInput.addEventListener('change',e=>handleFiles(e.target.files));
@@ -483,8 +595,31 @@ async function pasteImage(){
 }
 function reviewAccountOptions(o){return '<option value="">待确认账户</option>'+state.accounts.map(a=>`<option value="${a.id}" ${a.id===o.accountId?'selected':''}>${esc(a.name)}${a.last4?' · '+a.last4:''}</option>`).join('')}
 function renderQueue(){
+ const accountItems=reviewItems.filter(x=>x.docType==='account');
  queue.innerHTML=reviewItems.length?'':'<div class="card muted">当前没有待确认截图。</div>';
+ if(accountItems.length>=2){
+   queue.insertAdjacentHTML('beforeend',`<div class="oknote"><b>检测到 ${accountItems.length} 张银行卡</b><br>系统已拆分为独立账户。请确认每张卡的类型；截图未注明类型的不会自动猜。<div style="margin-top:8px"><button class="primary" onclick="saveAllDetectedAccounts()">保存全部已确认银行卡</button></div></div>`);
+ }
  reviewItems.forEach((o,i)=>{
+  if(o.docType==='account'){
+    const typeOptions=`<option value="" ${!o.accountType?'selected':''}>待确认</option><option value="credit" ${o.accountType==='credit'?'selected':''}>信用卡</option><option value="debit" ${o.accountType==='debit'?'selected':''}>储蓄卡</option>`;
+    queue.insertAdjacentHTML('beforeend',`<div class="review">
+      <div class="reviewHead"><div class="row">${o.preview?`<img class="thumb" src="${o.preview}">`:''}<div><span class="chip purple">银行卡账户</span>${o.duplicateAccount?' <span class="chip warn">疑似已存在</span>':''}<div class="txnTitle" style="margin-top:7px">${esc(o.bank)} · 尾号 ${esc(o.last4)}</div><div class="tiny">${esc(o.sourceName)}</div></div></div><button class="pill" onclick="removeReview(${i})">移除</button></div>
+      <div class="form" style="margin-top:11px">
+        <div class="field"><label>银行</label><input value="${esc(o.bank)}" onchange="reviewItems[${i}].bank=this.value;reviewItems[${i}].accountName=this.value+(reviewItems[${i}].accountType==='credit'?'信用卡':reviewItems[${i}].accountType==='debit'?'储蓄卡':'银行卡')"></div>
+        <div class="field"><label>卡尾号</label><input inputmode="numeric" maxlength="4" value="${esc(o.last4)}" onchange="reviewItems[${i}].last4=this.value"></div>
+        <div class="field"><label>账户类型</label><select onchange="reviewItems[${i}].accountType=this.value;reviewItems[${i}].accountName=reviewItems[${i}].bank+(this.value==='credit'?'信用卡':this.value==='debit'?'储蓄卡':'银行卡');renderQueue()">${typeOptions}</select></div>
+        <div class="field"><label>账户名称</label><input value="${esc(o.accountName)}" onchange="reviewItems[${i}].accountName=this.value"></div>
+        ${o.accountType==='credit'?`<div class="field"><label>账单日（可稍后补）</label><input type="number" min="1" max="31" placeholder="如 5" value="${esc(o.billDay)}" onchange="reviewItems[${i}].billDay=this.value"></div><div class="field"><label>还款日（可稍后补）</label><input type="number" min="1" max="31" placeholder="如 25" value="${esc(o.dueDay)}" onchange="reviewItems[${i}].dueDay=this.value"></div>`:''}
+      </div>
+      ${!o.accountType?'<div class="notice" style="margin-top:9px">截图里没有可靠识别到“信用卡/储蓄卡”，请你手动选择后再保存。</div>':''}
+      ${o.duplicateAccount?'<div class="notice" style="margin-top:9px">账户库里可能已有同银行、同尾号的卡，请检查后避免重复添加。</div>':''}
+      <details style="margin-top:9px"><summary class="tiny">查看这张卡的 OCR 片段</summary><div class="code">${esc(o.text)}</div></details>
+      <div class="row wrap" style="margin-top:10px"><button class="primary" onclick="saveReview(${i},false)">加入账户库</button></div>
+    </div>`);
+    return;
+  }
+
   let copt=cats.map(c=>`<option ${c===o.category?'selected':''}>${c}</option>`).join('');
   let badges=`<span class="chip ${o.docType==='statement'?'purple':''}">${o.docType==='statement'?'信用卡账单':'交易'}</span>${o.duplicate?` <span class="chip warn">${o.duplicate==='exact'?'完全重复':'疑似重复'}</span>`:''}`;
   queue.insertAdjacentHTML('beforeend',`<div class="review">
@@ -509,7 +644,30 @@ function renderQueue(){
 function refreshDup(i){let o=reviewItems[i],d=o.docType==='transaction'?dupCheck(o):{level:'',id:''};o.duplicate=d.level;o.duplicateId=d.id;renderQueue()}
 function removeReview(i){if(reviewItems[i]?.preview)URL.revokeObjectURL(reviewItems[i].preview);reviewItems.splice(i,1);renderQueue()}
 function saveReview(i,force){
- let o=reviewItems[i];if(!o||!o.amount){alert('请确认金额');return}if(!o.accountId){alert('请先选择具体账户，才能区分信用卡和储蓄卡。');return}
+ let o=reviewItems[i];if(!o)return;
+
+ if(o.docType==='account'){
+   if(!o.bank||!/^\d{4}$/.test(String(o.last4||''))){alert('请确认银行名称和4位卡尾号。');return}
+   if(!o.accountType){alert('请先选择信用卡或储蓄卡。');return}
+   let exists=state.accounts.find(a=>a.last4===o.last4 && (
+     normalizeBankName((a.bank||'')+' '+(a.name||''))===normalizeBankName(o.bank)
+   ));
+   if(exists){alert('账户库里已经有同银行、同尾号的银行卡。');return}
+   state.accounts.push({
+     id:uid(),
+     name:o.accountName||o.bank+(o.accountType==='credit'?'信用卡':'储蓄卡'),
+     type:o.accountType,
+     bank:o.bank,
+     last4:String(o.last4),
+     billDay:o.accountType==='credit'&&o.billDay?Number(o.billDay):null,
+     dueDay:o.accountType==='credit'&&o.dueDay?Number(o.dueDay):null,
+     confirmedStatements:[]
+   });
+   removeReview(i);persist();return;
+ }
+
+ if(!o.amount){alert('请确认金额');return}
+ if(!o.accountId){alert('请先选择具体账户，才能区分信用卡和储蓄卡。');return}
  if(o.docType==='statement'){
    let a=account(o.accountId);if(!a||a.type!=='credit'){alert('信用卡账单必须关联到信用卡账户。');return}if(!o.dueDate){alert('请确认到期还款日');return}
    a.confirmedStatements=a.confirmedStatements||[];let rec={id:uid(),amount:Number(o.amount),dueDate:o.dueDate,source:'screenshot',createdAt:new Date().toISOString()};
@@ -518,6 +676,13 @@ function saveReview(i,force){
  let d=dupCheck(o);if(d.level==='exact'&&!force){alert('已拦截完全重复记录。');return}if(d.level==='possible'&&!force&&!confirm('存在疑似重复记录。确认这是一笔新的交易吗？'))return;
  state.transactions.push({id:uid(),date:o.date,amount:Number(o.amount),merchant:o.merchant||'未命名',category:o.category||'其他',platform:o.platform||'其他',orderNo:o.orderNo||'',accountId:o.accountId,type:o.type||'expense',source:'screenshot',createdAt:new Date().toISOString()});
  removeReview(i);persist()
+}
+function saveAllDetectedAccounts(){
+  let idxs=[];
+  reviewItems.forEach((o,i)=>{if(o.docType==='account'&&o.accountType&&!o.duplicateAccount)idxs.push(i)});
+  if(!idxs.length){alert('没有可以直接保存的银行卡；请先确认卡类型。');return}
+  // 从后往前保存，避免数组索引变化
+  idxs.sort((a,b)=>b-a).forEach(i=>saveReview(i,false));
 }
 function icon(c){return {'餐饮':'餐','购物':'购','服饰美妆':'衣','数码':'数','交通':'行','学习':'学','医疗健康':'医','生活缴费':'缴','娱乐':'娱','旅行':'旅','居住':'住','宠物':'宠','人情往来':'礼','其他':'·'}[c]||'·'}
 function txnHtml(t){
@@ -535,6 +700,7 @@ function safeDate(y,m,d){return new Date(y,m-1,Math.min(d,daysInMonth(y,m)))}
 function stmtDateFor(date,a){let d=dObj(date),y=d.getFullYear(),m=d.getMonth()+1;if(d.getDate()<=a.billDay)return safeDate(y,m,a.billDay);return m===12?safeDate(y+1,1,a.billDay):safeDate(y,m+1,a.billDay)}
 function dueForStmt(stmt,a){let y=stmt.getFullYear(),m=stmt.getMonth()+1;if(a.dueDay>a.billDay)return safeDate(y,m,a.dueDay);return m===12?safeDate(y+1,1,a.dueDay):safeDate(y,m+1,a.dueDay)}
 function forecast(a){
+ if(!a||a.type!=='credit'||!Number(a.billDay)||!Number(a.dueDay))return {};
  let g={};state.transactions.filter(t=>t.accountId===a.id&&['expense','refund'].includes(t.type)).forEach(t=>{let due=dueForStmt(stmtDateFor(t.date,a),a),k=dayKey(due);g[k]=(g[k]||0)+(t.type==='expense'?Number(t.amount):-Number(t.amount))});Object.keys(g).forEach(k=>g[k]=Math.max(0,g[k]));
  let reps=state.transactions.filter(t=>t.accountId===a.id&&t.type==='repayment').sort((x,y)=>dObj(x.date)-dObj(y.date));
  reps.forEach(t=>{let rem=Number(t.amount||0),pay=dObj(t.date);for(let k of Object.keys(g).sort()){if(rem<=0)break;let due=new Date(k+'T23:59');if(due<pay||g[k]<=0)continue;let u=Math.min(rem,g[k]);g[k]-=u;rem-=u}});
@@ -558,8 +724,20 @@ function renderCards(){
  let months={};credits.forEach(a=>{let g=forecast(a);for(let [k,v] of Object.entries(g)){if(v<=0)continue;let m=k.slice(0,7);months[m]=(months[m]||0)+v}(a.confirmedStatements||[]).forEach(r=>{let m=r.dueDate.slice(0,7);months[m]=months[m]||0})});
  dueByMonth.innerHTML=Object.keys(months).length?Object.keys(months).sort().map(m=>{let total=0,lines=[];credits.forEach(a=>{let conf=(a.confirmedStatements||[]).filter(r=>r.dueDate.startsWith(m));let v=0,label='预计';if(conf.length){v=conf.reduce((s,r)=>s+Number(r.amount),0);label='银行确认'}else{let g=forecast(a);v=Object.entries(g).filter(([k])=>k.startsWith(m)).reduce((s,[,x])=>s+x,0)}if(v){total+=v;lines.push(`${a.name} ${money(v)}（${label}）`)}});return `<div class="account"><div class="row between"><b>${m}</b><b>${money(total)}</b></div><div class="tiny">${lines.join('；')}</div></div>`}).join(''):'<div class="muted">暂无应还数据。</div>'
 }
+
+function setCreditCycle(id){
+  let a=account(id);if(!a||a.type!=='credit')return;
+  let b=prompt('账单日（1-31）：',a.billDay||'');
+  if(b===null)return;
+  let d=prompt('还款日（1-31）：',a.dueDay||'');
+  if(d===null)return;
+  b=Number(b);d=Number(d);
+  if(!Number.isInteger(b)||b<1||b>31||!Number.isInteger(d)||d<1||d>31){alert('账单日和还款日请输入1-31的整数。');return}
+  a.billDay=b;a.dueDay=d;persist();
+}
+
 function renderAccounts(){
- accounts.innerHTML=state.accounts.length?state.accounts.map(a=>`<div class="account"><div class="row between"><div><b>${esc(a.name)}</b><div class="tiny">${esc(a.bank||'')}${a.last4?' · 尾号 '+esc(a.last4):''}${a.type==='credit'?` · 账单日 ${a.billDay} · 还款日 ${a.dueDay}`:''}</div></div>${accountChip(a)}</div><div style="margin-top:8px"><button class="danger" onclick="deleteAccount('${a.id}')">删除</button></div></div>`).join(''):'<div class="muted" style="margin-top:9px">还没有账户。建议先登记支付宝、微信、常用储蓄卡和信用卡。</div>'
+ accounts.innerHTML=state.accounts.length?state.accounts.map(a=>`<div class="account"><div class="row between"><div><b>${esc(a.name)}</b><div class="tiny">${esc(a.bank||'')}${a.last4?' · 尾号 '+esc(a.last4):''}${a.type==='credit'?(a.billDay&&a.dueDay?` · 账单日 ${a.billDay} · 还款日 ${a.dueDay}`:' · 待补充账单日/还款日'):''}</div></div>${accountChip(a)}</div><div class="row wrap" style="margin-top:8px">${a.type==='credit'?`<button class="secondary" onclick="setCreditCycle('${a.id}')">${a.billDay&&a.dueDay?'修改账单周期':'补充账单周期'}</button>`:''}<button class="danger" onclick="deleteAccount('${a.id}')">删除</button></div></div>`).join(''):'<div class="muted" style="margin-top:9px">还没有账户。建议先登记支付宝、微信、常用储蓄卡和信用卡。</div>'
 }
 function saveManual(){
  let amt=Math.abs(Number(manualAmount.value)),aid=manualAccount.value;if(!amt||!aid){alert('请填写金额并选择账户');return}
