@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#f5f5f7">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="财务中枢 V2">
-<title>财务中枢 V2.3.0 · iPhone</title>
+<title>财务中枢 V2.3.1 · iPhone</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@6/dist/tesseract.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <style>
@@ -57,12 +57,23 @@ table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:9px 5px;b
 .code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;background:#f1f1f3;border-radius:9px;padding:8px;white-space:pre-wrap;word-break:break-word;max-height:180px;overflow:auto}
 .seg{display:grid;grid-template-columns:repeat(3,1fr);background:#e9e9ee;border-radius:12px;padding:3px;gap:3px}.seg button{border:0;background:transparent;border-radius:9px;padding:8px;font-size:12px;font-weight:700}.seg button.active{background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.08)}
 @media(max-width:520px){.metric{font-size:25px}.form{grid-template-columns:1fr}.full{grid-column:1}.search{grid-template-columns:1fr 1fr}.search input{grid-column:1/-1}.barrow{grid-template-columns:76px 1fr 69px}}
+
+.compactTxn{align-items:flex-start!important;padding:16px 2px!important}
+.compactTxn .txnMain{min-width:0;flex:1}
+.compactTxn .txnTitle{font-size:16px;line-height:1.32;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.compactTxn .txnSub{margin-top:4px;font-size:12px;line-height:1.45;color:var(--muted)}
+.compactTxn .txnRight{min-width:118px;text-align:right}
+.compactTxn .amt{font-size:17px!important;white-space:nowrap}
+.txnDetails{margin-top:6px}
+.txnDetails summary{font-size:11px;color:var(--muted);cursor:pointer;list-style:none}
+.txnDetails summary::-webkit-details-marker{display:none}
+
 </style>
 </head>
 <body>
 <div class="app">
   <div class="top">
-    <div><div class="title">财务中枢 V2.3.0</div><div class="sub" id="dateText">iPhone · 本地优先 · 截图批量识别</div></div>
+    <div><div class="title">财务中枢 V2.3.1</div><div class="sub" id="dateText">iPhone · 本地优先 · 截图批量识别</div></div>
     <button class="pill" onclick="showPage('import')">＋截图</button>
   </div>
 
@@ -222,7 +233,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:9px 5px;b
 <script>
 const STORE='financeHubV2';
 const SNAPSHOT_INDEX='financeHubSnapshots';
-const APP_VERSION='2.3.0';
+const APP_VERSION='2.3.1';
 const SCHEMA_VERSION=4;
 const cats=['餐饮','购物','服饰美妆','数码','交通','学习','医疗健康','生活缴费','娱乐','旅行','居住','宠物','人情往来','其他'];
 let state=loadAndMigrate();
@@ -1465,10 +1476,90 @@ function saveAllDetectedAccounts(){
   idxs.sort((a,b)=>b-a).forEach(i=>saveReview(i,false));
 }
 function icon(c){return {'餐饮':'餐','购物':'购','服饰美妆':'衣','数码':'数','交通':'行','学习':'学','医疗健康':'医','生活缴费':'缴','娱乐':'娱','旅行':'旅','居住':'住','宠物':'宠','人情往来':'礼','其他':'·'}[c]||'·'}
+
+function cleanCounterpartyName(name){
+  let s=String(name||'').replace(/\s+/g,' ').trim();
+  if(!s)return '';
+  s=s.replace(/^平安银行(?:深圳蛇口支行|深圳分行市区自助银行运营分中心|深圳分行营业部)?[-\s]*/,'');
+  s=s.replace(/^中国银行(?:总行)?[-\s]*/,'');
+  s=s.replace(/^中国工商银行(?:总行清算中心)?[-\s]*/,'');
+  s=s.replace(/^工商银行[-\s]*/,'');
+  s=s.replace(/^招商银行[-\s]*/,'');
+  s=s.replace(/^财付通支付科技有限公司[-\s]*/,'');
+  s=s.replace(/^支付宝（中国）网络技术有限公司[-\s]*/,'');
+  s=s.replace(/^抖音支付科技有限公司[-\s]*/,'');
+  s=s.replace(/^北京钱袋宝支付技术有限公司[-\s]*/,'');
+  s=s.replace(/[￾]+/g,' ').replace(/\b\d{8,}\b/g,'').trim();
+  if(/深圳市宝安区光翠路|平安银行9045\d+|自助银行运营分中心/.test(s))return '';
+  return s.length>32?s.slice(0,32)+'…':s;
+}
+function smartTxnTitle(t){
+  const raw=[t.rawSummary,t.merchant,t.note,t.platform].filter(Boolean).join(' ');
+  const m=cleanCounterpartyName(t.merchant);
+  if(/ATM存款/i.test(raw))return 'ATM现金存款';
+  if(/ATM取款/i.test(raw))return 'ATM现金取款';
+  if(/信用卡自动扣款|信用卡还款/i.test(raw)||t.type==='repayment')return '信用卡还款';
+  if(/灵活宝交易中产品购买|理财.*申购|产品购买|基金购买/i.test(raw)||t.type==='investment_buy')return '理财申购';
+  if(/灵活宝自动赎回|理财.*赎回|赎回资金转入|基金赎回/i.test(raw)||t.type==='investment_redeem')return '理财赎回';
+  if(/电费/i.test(raw))return '电费';
+  if(/水费/i.test(raw))return '水费';
+  if(/燃气/i.test(raw))return '燃气费';
+  if(/微信零钱提现/i.test(raw))return '微信零钱提现';
+  if(/余额宝提现/i.test(raw))return '余额宝提现';
+  if(/抖音支付|抖音月付/i.test(raw))return '抖音支付';
+  if(/财付通|微信支付/i.test(raw))return '微信/财付通';
+  if(/支付宝/i.test(raw))return '支付宝消费';
+  if(/人身保险费|平安人寿/i.test(raw))return '保险缴费';
+  if(t.type==='transfer'||/跨行转账|网银转款本金|移动收款|云闪付转账|ATM转账/i.test(raw)){
+    if(/汪宇/.test(raw))return /移动收款|转入|贷记|存款/i.test(raw)?'本人账户转入':'本人账户转出';
+    return m?(['income','refund','investment_redeem'].includes(t.type)?`${m}转入`:`转给${m}`):'银行转账';
+  }
+  return m||t.merchant||t.rawSummary||'银行交易';
+}
+function smartDisplayCategory(t){
+  const raw=[t.rawSummary,t.merchant,t.note].filter(Boolean).join(' ');
+  if(/ATM存款/i.test(raw))return '资金转入';
+  if(/ATM取款/i.test(raw))return '现金';
+  if(t.type==='transfer')return '内部转账';
+  if(t.type==='repayment')return '信用卡还款';
+  if(t.type==='investment_buy')return '理财申购';
+  if(t.type==='investment_redeem')return '理财赎回';
+  if(t.type==='refund')return '退款';
+  if(t.type==='income')return t.category==='其他'?'收入':t.category;
+  return t.category||txnTypeLabel(t.type)||'其他';
+}
+function txnDirectionPrefix(t){
+  if(['refund','income','investment_redeem'].includes(t.type))return '+';
+  if(['expense','fee','investment_buy','repayment'].includes(t.type))return '-';
+  if(t.type==='transfer'){
+    const raw=[t.rawSummary,t.merchant,t.note].join(' ');
+    return /移动收款|转入|贷记|存款/i.test(raw)?'+':'-';
+  }
+  return '';
+}
+
 function txnHtml(t){
- let a=account(t.accountId),plus=['refund','income','investment_redeem'].includes(t.type);
- let prefix=plus?'+':(['transfer','repayment','investment_buy'].includes(t.type)?'':'-');
- return `<div class="txn"><div class="ico">${icon(t.category)}</div><div><div class="txnTitle">${esc(t.merchant)}</div><div class="txnSub">${dayKey(t.date)} · ${esc(t.category)} · ${esc(txnTypeLabel(t.type))} · ${esc(t.platform)}${t.note?' · '+esc(t.note):''}<br>${accountChip(a)}</div></div><div><div class="amt ${plus?'plus':''}">${prefix}${money(t.amount)}</div><div class="row" style="justify-content:flex-end;margin-top:5px"><button class="pill" style="font-size:10px" onclick="editTxn('${t.id}')">编辑</button><button class="pill" style="font-size:10px" onclick="deleteTxn('${t.id}')">删除</button></div></div></div>`
+ let a=account(t.accountId),title=smartTxnTitle(t),cat=smartDisplayCategory(t),prefix=txnDirectionPrefix(t),plus=prefix==='+';
+ let details=[
+   t.merchant?`<div><b>原始对方/商家：</b>${esc(t.merchant)}</div>`:'',
+   t.rawSummary?`<div><b>银行摘要：</b>${esc(t.rawSummary)}</div>`:'',
+   t.bankTxnId?`<div><b>流水标识：</b>${esc(t.bankTxnId)}</div>`:'',
+   t.orderNo?`<div><b>订单号：</b>${esc(t.orderNo)}</div>`:'',
+   t.note?`<div><b>备注：</b>${esc(t.note)}</div>`:'',
+   `<div><b>来源：</b>${esc(t.source==='bank-pdf'?'银行PDF':(t.source||'手工/截图'))}</div>`
+ ].filter(Boolean).join('');
+ return `<div class="txn compactTxn">
+   <div class="ico">${icon(t.category)}</div>
+   <div class="txnMain">
+     <div class="txnTitle">${esc(title)}</div>
+     <div class="txnSub">${dayKey(t.date)} · ${esc(cat)} · ${accountChip(a)}</div>
+     <details class="txnDetails"><summary>详情</summary><div class="code" style="margin-top:7px">${details}</div></details>
+   </div>
+   <div class="txnRight">
+     <div class="amt ${plus?'plus':''}">${prefix}${money(t.amount)}</div>
+     <div class="row" style="justify-content:flex-end;margin-top:7px"><button class="pill" style="font-size:10px" onclick="editTxn('${t.id}')">编辑</button><button class="pill" style="font-size:10px" onclick="deleteTxn('${t.id}')">删除</button></div>
+   </div>
+ </div>`
 }
 
 function editTxn(id){
